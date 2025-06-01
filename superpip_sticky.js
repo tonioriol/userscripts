@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SuperPiP
 // @namespace    https://github.com/user/superpip
-// @version      4.1.0
-// @description  Restore native Picture-in-Picture functionality on any website with button overlay
+// @version      5.0.0
+// @description  Enable native video controls with Picture-in-Picture functionality on any website
 // @author       SuperPiP
 // @match        https://*/*
 // @match        http://*/*
@@ -13,164 +13,78 @@
 (function() {
     'use strict';
 
-    // CSS for the PiP button - positioned as sibling overlay
-    const buttonStyles = `
-        .superpip-container {
-            position: relative !important;
-            pointer-events: none !important;
-        }
-        
-        .superpip-button {
-            position: absolute !important;
-            bottom: 14px !important;
-            left: 14px !important;
-            width: 48px !important;
-            height: 36px !important;
-            background: rgba(0, 0, 0, 0.9) !important;
-            border: 2px solid rgba(255, 255, 255, 0.9) !important;
-            border-radius: 8px !important;
-            cursor: pointer !important;
-            z-index: 999999999 !important;
-            opacity: 1 !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            color: white !important;
-            font-family: Arial, sans-serif !important;
-            font-weight: bold !important;
-            user-select: none !important;
-            pointer-events: auto !important;
-            box-sizing: border-box !important;
-        }
-        
-        .superpip-button::before {
-            content: "PiP" !important;
-            font-size: 11px !important;
-            font-weight: bold !important;
-        }
-    `;
-
-    // Add styles to the page
-    function addStyles() {
-        if (document.getElementById('superpip-styles')) return;
-        
-        const style = document.createElement('style');
-        style.id = 'superpip-styles';
-        style.textContent = buttonStyles;
-        (document.head || document.documentElement).appendChild(style);
-    }
-
-    // Create PiP button for a specific video
-    function createPipButtonForVideo(video) {
-        // Don't add button if video already has one
-        if (video.nextElementSibling && video.nextElementSibling.classList.contains('superpip-container')) {
+    // Enable native controls for a specific video
+    function enableVideoControls(video) {
+        // Skip if controls are already enabled
+        if (video.hasAttribute('controls') || video._superpipProcessed) {
             return;
         }
 
-        // Create container div
-        const container = document.createElement('div');
-        container.className = 'superpip-container';
-        
-        // Create button
-        const button = document.createElement('div');
-        button.className = 'superpip-button';
-        button.title = 'Picture in Picture';
-        
-        button.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            try {
-                if (document.pictureInPictureEnabled && !video.disablePictureInPicture) {
-                    if (document.pictureInPictureElement) {
-                        await document.exitPictureInPicture();
-                    } else {
-                        await video.requestPictureInPicture();
-                    }
-                } else if (video.webkitSupportsPresentationMode && video.webkitSupportsPresentationMode('picture-in-picture')) {
-                    // Safari/iOS fallback
-                    video.webkitSetPresentationMode('picture-in-picture');
-                }
-            } catch (error) {
-                console.log('PiP not available:', error);
-            }
-        });
+        // Mark as processed to avoid duplicate processing
+        video._superpipProcessed = true;
 
-        container.appendChild(button);
+        // Enable native controls
+        video.setAttribute('controls', '');
         
-        // Insert container as sibling after the video
-        video.parentNode.insertBefore(container, video.nextSibling);
-        console.log('SuperPiP: Added button for video');
+        // Remove disablepictureinpicture attribute if present
+        if (video.hasAttribute('disablepictureinpicture')) {
+            video.removeAttribute('disablepictureinpicture');
+        }
+        
+        // Ensure PiP is not disabled via property
+        video.disablePictureInPicture = false;
+
+        console.log('SuperPiP: Enabled native controls for video');
     }
 
-    // Check if videos exist and add/remove buttons as needed
-    function checkVideos() {
+    // Process all videos on the page
+    function processVideos() {
         const videos = document.querySelectorAll('video');
         
-        // Remove buttons for videos that no longer exist or are not active
-        const existingContainers = document.querySelectorAll('.superpip-container');
-        existingContainers.forEach(container => {
-            const video = container.previousElementSibling;
-            if (!video || video.tagName !== 'VIDEO' ||
-                video.offsetWidth < 100 || video.offsetHeight < 100 ||
-                (video.readyState < 2 && video.currentTime === 0 && video.paused)) {
-                container.remove();
-                console.log('SuperPiP: Removed button for inactive video');
-            }
-        });
-        
-        // Add buttons for active videos that don't have them
-        const activeVideos = Array.from(videos).filter(v =>
-            v.offsetWidth > 100 &&
-            v.offsetHeight > 100 &&
-            (v.readyState >= 2 || v.currentTime > 0 || !v.paused)
+        // Filter for videos that are visible and have meaningful dimensions
+        const visibleVideos = Array.from(videos).filter(v => 
+            v.offsetWidth > 50 && 
+            v.offsetHeight > 50
         );
         
-        activeVideos.forEach(video => {
-            createPipButtonForVideo(video);
+        visibleVideos.forEach(video => {
+            enableVideoControls(video);
         });
         
-        if (activeVideos.length > 0) {
-            console.log('SuperPiP: Processed', activeVideos.length, 'active videos');
+        if (visibleVideos.length > 0) {
+            console.log('SuperPiP: Processed', visibleVideos.length, 'videos');
         }
     }
 
     // Initialize when DOM is ready
     function init() {
-        addStyles();
-        checkVideos();
+        processVideos();
         
-        // Watch for new elements being added (videos, play buttons clicked, etc.)
+        // Watch for new video elements being added
         const observer = new MutationObserver((mutations) => {
-            let shouldCheck = false;
+            let shouldProcess = false;
             
             mutations.forEach(mutation => {
                 // Check if any new nodes include video elements
                 mutation.addedNodes.forEach(node => {
                     if (node.nodeType === 1) { // Element node
                         if (node.tagName === 'VIDEO' || node.querySelector('video')) {
-                            shouldCheck = true;
+                            shouldProcess = true;
                         }
                     }
                 });
                 
-                // Check if any removed nodes were videos
-                mutation.removedNodes.forEach(node => {
-                    if (node.nodeType === 1) {
-                        if (node.tagName === 'VIDEO' || node.querySelector('video')) {
-                            shouldCheck = true;
-                        }
-                    }
-                });
-                
-                // Check for attribute changes on video elements (like play state)
+                // Check for attribute changes on video elements
                 if (mutation.type === 'attributes' && mutation.target.tagName === 'VIDEO') {
-                    shouldCheck = true;
+                    // Re-enable controls if they were removed
+                    if (mutation.attributeName === 'controls' && !mutation.target.hasAttribute('controls')) {
+                        shouldProcess = true;
+                    }
                 }
             });
             
-            if (shouldCheck) {
-                checkVideos();
+            if (shouldProcess) {
+                processVideos();
             }
         });
         
@@ -178,20 +92,28 @@
             childList: true,
             subtree: true,
             attributes: true,
-            attributeFilter: ['src', 'currentTime', 'paused', 'readyState']
+            attributeFilter: ['controls', 'disablepictureinpicture', 'src']
         });
         
-        // Also listen for video events that indicate playback
-        document.addEventListener('play', checkVideos, true);
-        document.addEventListener('loadeddata', checkVideos, true);
-        document.addEventListener('canplay', checkVideos, true);
+        // Also process videos when they start loading or playing
+        document.addEventListener('loadstart', (e) => {
+            if (e.target.tagName === 'VIDEO') {
+                enableVideoControls(e.target);
+            }
+        }, true);
+        
+        document.addEventListener('loadedmetadata', (e) => {
+            if (e.target.tagName === 'VIDEO') {
+                enableVideoControls(e.target);
+            }
+        }, true);
     }
 
-    // iOS Safari needs a user interaction first before we can modify video elements
+    // iOS Safari specific handling
     document.addEventListener('touchstart', function initOnTouch() {
         let v = document.querySelector('video');
         if (v) {
-            v.addEventListener('webkitpresentationmodechanged', (e)=>e.stopPropagation(), true);
+            v.addEventListener('webkitpresentationmodechanged', (e) => e.stopPropagation(), true);
             // Remove the touchstart listener after we've initialized
             document.removeEventListener('touchstart', initOnTouch);
         }
@@ -206,5 +128,5 @@
 
     // Also initialize after delays to catch dynamically loaded videos
     setTimeout(init, 1000);
-    setTimeout(checkVideos, 3000);
+    setTimeout(processVideos, 3000);
 })();
