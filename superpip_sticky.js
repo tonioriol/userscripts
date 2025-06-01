@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SuperPiP
 // @namespace    https://github.com/user/superpip
-// @version      5.0.0
+// @version      5.0.1
 // @description  Enable native video controls with Picture-in-Picture functionality on any website
 // @author       SuperPiP
 // @match        https://*/*
@@ -15,26 +15,7 @@
 
     // Enable native controls for a specific video
     function enableVideoControls(video) {
-        // Skip if controls are already enabled
-        if (video.hasAttribute('controls') || video._superpipProcessed) {
-            return;
-        }
-
-        // Mark as processed to avoid duplicate processing
-        video._superpipProcessed = true;
-
-        // Enable native controls
         video.setAttribute('controls', '');
-        
-        // Remove disablepictureinpicture attribute if present
-        if (video.hasAttribute('disablepictureinpicture')) {
-            video.removeAttribute('disablepictureinpicture');
-        }
-        
-        // Ensure PiP is not disabled via property
-        video.disablePictureInPicture = false;
-
-        console.log('SuperPiP: Enabled native controls for video');
     }
 
     // Simple PoC: Detect elements positioned on top of video
@@ -54,8 +35,8 @@
             const rect = element.getBoundingClientRect();
             const zIndex = parseInt(style.zIndex) || 0;
             
-            // Much stricter - element must be within video bounds AND positioned
-            const isPositioned = ['absolute', 'fixed'].includes(style.position);
+            // element must be within video bounds AND positioned
+            const isPositioned = !['relative'].includes(style.position);
             const isOnTop = (isPositioned && zIndex >= videoZIndex);
             const isWithinBounds = rect.left >= videoRect.left &&
                                    rect.right <= videoRect.right &&
@@ -71,38 +52,19 @@
                     zIndex: zIndex
                 });
                 
-                // Hide the overlay element
-                console.log(`🚫 SuperPiP: Hiding overlay: ${element.tagName}`);
                 element.style.display = 'none';
             }
         });
-        
-        if (overlays.length > 0) {
-            console.log('SuperPiP: Found', overlays.length, 'overlays on video:', overlays);
-        }
         
         return overlays;
     }
 
     // Process all videos on the page
     function processVideos() {
-        const videos = document.querySelectorAll('video');
-        
-        // Filter for videos that are visible and have meaningful dimensions
-        const visibleVideos = Array.from(videos).filter(v => 
-            v.offsetWidth > 50 && 
-            v.offsetHeight > 50
-        );
-        
-        visibleVideos.forEach(video => {
+        document.querySelectorAll('video').forEach(video => {
             enableVideoControls(video);
-            // Detect overlays for debugging
             detectVideoOverlays(video);
         });
-        
-        if (visibleVideos.length > 0) {
-            console.log('SuperPiP: Processed', visibleVideos.length, 'videos');
-        }
     }
 
     // Initialize when DOM is ready
@@ -141,7 +103,6 @@
             childList: true,
             subtree: true,
             attributes: true,
-            attributeFilter: ['controls', 'disablepictureinpicture', 'src']
         });
         
         // Also process videos when they start loading or playing
@@ -158,7 +119,7 @@
         }, true);
     }
 
-    // iOS Safari specific handling
+    // iOS Safari specific handling (THIS IS WHAT ENABLES PIP ON YOUTUBE SPECIALLY)
     document.addEventListener('touchstart', function initOnTouch() {
         let v = document.querySelector('video');
         if (v) {
