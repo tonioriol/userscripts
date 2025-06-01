@@ -37,6 +37,53 @@
         console.log('SuperPiP: Enabled native controls for video');
     }
 
+    // Simple PoC: Detect elements positioned on top of video
+    function detectVideoOverlays(video) {
+        const videoRect = video.getBoundingClientRect();
+        const videoStyle = window.getComputedStyle(video);
+        const videoZIndex = parseInt(videoStyle.zIndex) || 0;
+        
+        const overlays = [];
+        const allElements = document.querySelectorAll('*');
+        
+        allElements.forEach(element => {
+            // Skip the video itself and its containers
+            if (element === video || element.contains(video)) return;
+            
+            const style = window.getComputedStyle(element);
+            const rect = element.getBoundingClientRect();
+            const zIndex = parseInt(style.zIndex) || 0;
+            
+            // Much stricter - element must be within video bounds AND positioned
+            const isPositioned = ['absolute', 'fixed'].includes(style.position);
+            const isOnTop = (isPositioned && zIndex >= videoZIndex);
+            const isWithinBounds = rect.left >= videoRect.left &&
+                                   rect.right <= videoRect.right &&
+                                   rect.top >= videoRect.top &&
+                                   rect.bottom <= videoRect.bottom;
+            const isVisible = style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+            
+            if (isOnTop && isWithinBounds && isVisible) {
+                overlays.push({
+                    element: element,
+                    tagName: element.tagName,
+                    classes: Array.from(element.classList),
+                    zIndex: zIndex
+                });
+                
+                // Hide the overlay element
+                console.log(`🚫 SuperPiP: Hiding overlay: ${element.tagName}`);
+                element.style.display = 'none';
+            }
+        });
+        
+        if (overlays.length > 0) {
+            console.log('SuperPiP: Found', overlays.length, 'overlays on video:', overlays);
+        }
+        
+        return overlays;
+    }
+
     // Process all videos on the page
     function processVideos() {
         const videos = document.querySelectorAll('video');
@@ -49,6 +96,8 @@
         
         visibleVideos.forEach(video => {
             enableVideoControls(video);
+            // Detect overlays for debugging
+            detectVideoOverlays(video);
         });
         
         if (visibleVideos.length > 0) {
