@@ -7,21 +7,24 @@
 // @match        *://*/*
 // @grant        GM.getValue
 // @grant        GM.setValue
-// @require      https://github.com/tonioriol/userscripts/raw/refs/heads/main/lang-codes.js
+// @require      https://github.com/tonioriol/userscripts/raw/refs/heads/main/iso-language-codes-639-1-and-639-2@public.js
 // @license      AGPL-3.0-or-later
 // @updateURL    https://github.com/tonioriol/userscripts/raw/refs/heads/main/gotocat.user.js
 // @downloadURL  https://github.com/tonioriol/userscripts/raw/refs/heads/main/gotocat.user.js
 // ==/UserScript==
 
+// User-configurable settings
 const CONFIG = {
   targetLang: 'ca',
   variants: ['ca', 'va'], // Catalan, Valencian
   keywords: ['català', 'catalan', 'generalitat', 'ajuntament'],
   rejections: ['canada', 'canadian', 'canadien'],
-  langRejections: ['en', 'fr'], // HTML lang conflicts (Canada/France)
-  urlParams: ['lang', 'ln', 'hl'],
-  notificationTimeout: 3000
+  langRejections: ['en', 'fr'] // HTML lang conflicts (Canada/France)
 }
+
+// Technical constants
+const URL_PARAMS = ['lang', 'ln', 'hl']
+const NOTIFICATION_TIMEOUT = 3000
 
 const createNotification = () => {
   const notification = document.createElement('div')
@@ -42,19 +45,22 @@ const createNotification = () => {
   notification.onclick = () => notification.remove()
   
   document.body.appendChild(notification)
-  setTimeout(() => notification.remove?.(), CONFIG.notificationTimeout)
+  setTimeout(() => notification.remove?.(), NOTIFICATION_TIMEOUT)
 }
 
 const isTargetLanguage = async (url) => {
   try {
     const response = await fetch(url)
-    if (!response.ok) return false
+    
+    // Accept success responses (200-299) and redirects (300-399)
+    // Redirects are common for language URLs (e.g., /ca/ -> /ca-es/)
+    if (response.status >= 400) return false
     
     const text = await response.text()
     const lowerText = text.toLowerCase()
     const langMatch = text.match(/<html[^>]*lang=["']([^"']*)/i)
     
-    // Check HTML lang attribute first
+    // Check HTML lang attribute first - this is the most reliable indicator
     if (langMatch) {
       const lang = langMatch[1].toLowerCase()
       const hasTargetVariant = CONFIG.variants.some(variant => lang.includes(variant))
@@ -64,10 +70,18 @@ const isTargetLanguage = async (url) => {
       if (hasRejectedLang) return false
     }
     
-    // Check content for rejections and keywords
+    // For URL parameter candidates, be more strict - require both keywords AND no rejections
+    // since parameters often return 200 even when not supported
+    const isUrlParam = url.includes('?') && URL_PARAMS.some(param => url.includes(`${param}=${CONFIG.targetLang}`))
     const hasRejections = CONFIG.rejections.some(rejection => lowerText.includes(rejection))
     const hasKeywords = CONFIG.keywords.some(keyword => lowerText.includes(keyword))
     
+    if (isUrlParam) {
+      // Stricter validation for URL parameters - must have keywords
+      return !hasRejections && hasKeywords
+    }
+    
+    // For path/subdomain changes, be more lenient as they're more likely to work
     return !hasRejections && hasKeywords
   } catch {
     return false
@@ -106,7 +120,7 @@ const generateUrlCandidates = (url) => {
   candidates.push(url.replace(/^(https?:\/\/)/, `$1${CONFIG.targetLang}.`))
   
   // URL parameter injection
-  CONFIG.urlParams.forEach(param => {
+  URL_PARAMS.forEach(param => {
     const paramUrl = new URL(url)
     paramUrl.searchParams.set(param, CONFIG.targetLang)
     candidates.push(paramUrl.toString())
