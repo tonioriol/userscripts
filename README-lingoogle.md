@@ -49,4 +49,4 @@ Perfect for multilingual users who need to quickly switch between languages when
 
 ## License
 
-MIT License
+AGPL-3.0-or-later License

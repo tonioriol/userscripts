@@ -6,7 +6,7 @@
 // @author       Toni Oriol
 // @include      /^http(s)?:\/\/(www)?\.google\.\w*\/search.*$/
 // @grant        none
-// @license      MIT
+// @license      AGPL-3.0-or-later
 // @updateURL    https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/lingoogle.user.js
 // @downloadURL  https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/lingoogle.user.js
 // ==/UserScript==

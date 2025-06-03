@@ -7,7 +7,7 @@
 // @match        *://*/*
 // @grant        GM.getValue
 // @grant        GM.setValue
-// @license      MIT
+// @license      AGPL-3.0-or-later
 // @updateURL    https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/Redirect%20es%20to%20ca.user.js
 // @downloadURL  https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/Redirect%20es%20to%20ca.user.js
 // ==/UserScript==
