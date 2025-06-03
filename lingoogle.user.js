@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LinGoogle
 // @namespace    https://github.com/tonioriol
-// @version      3.0.1
+// @version      3.0.2
 // @description  Add language filter buttons to Google search for quick language switching
 // @author       Toni Oriol
 // @include      /^http(s)?:\/\/(www)?\.google\.\w*\/search.*$/
