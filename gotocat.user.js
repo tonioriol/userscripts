@@ -1,15 +1,15 @@
 // ==UserScript==
-// @name         Redirect es to ca
+// @name         GotoCat
 // @namespace    https://github.com/tonioriol
 // @version      0.0.3
-// @description  Tries to redirect any url with /es or es. to /ca ca.
+// @description  Automatically redirects Spanish URLs to their Catalan equivalents
 // @author       Toni Oriol
 // @match        *://*/*
 // @grant        GM.getValue
 // @grant        GM.setValue
 // @license      AGPL-3.0-or-later
-// @updateURL    https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/Redirect%20es%20to%20ca.user.js
-// @downloadURL  https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/Redirect%20es%20to%20ca.user.js
+// @updateURL    https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/gotocat.user.js
+// @downloadURL  https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/gotocat.user.js
 // ==/UserScript==
 
 
