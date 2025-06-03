@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GotoCat
 // @namespace    https://github.com/tonioriol
-// @version      0.0.3
+// @version      0.0.4
 // @description  Automatically redirects Spanish URLs to their Catalan equivalents
 // @author       Toni Oriol
 // @match        *://*/*
