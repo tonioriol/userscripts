@@ -41,23 +41,47 @@ const notify = () => {
 
   const oldHref = location.href
   
+  // Domains where /ca/ typically means Canada, not Catalan
+  const canadaDomains = [
+    'filmaffinity.com',
+    'imdb.com',
+    'amazon.com',
+    'booking.com',
+    'tripadvisor.com'
+  ]
+  
+  // Domain-specific Catalan patterns
+  const domainPatterns = {
+    'wikipedia.org': {
+      from: '/wiki/',
+      to: '/wiki/',
+      langParam: '?lang=ca'
+    },
+    'gov.cat': {
+      preferSubdomain: true
+    }
+  }
+  
+  // Check if current domain might confuse /ca/ with Canada
+  const isCanadaDomain = canadaDomains.some(domain => location.hostname.includes(domain))
+  
   // Try multiple Catalan URL patterns
   const urlsToTry = []
   
-  // 1. Replace /es/ with /ca/ if it exists
+  // 1. Replace /es/ with /ca/ if it exists (always safe)
   const esPathReplaced = location.href.replace(/(\/es\/)/, '/ca/')
   if (esPathReplaced !== location.href) {
     urlsToTry.push(esPathReplaced)
   }
   
-  // 2. Replace es. subdomain with ca. if it exists
+  // 2. Replace es. subdomain with ca. if it exists (always safe)
   const esSubdomainReplaced = location.href.replace(/^(https?:\/\/)es\./, '$1ca.')
   if (esSubdomainReplaced !== location.href) {
     urlsToTry.push(esSubdomainReplaced)
   }
   
-  // 3. Always try adding /ca/ path if not already present
-  if (!location.pathname.includes('/ca/')) {
+  // 3. Try adding /ca/ path only if not a Canada-prone domain
+  if (!location.pathname.includes('/ca/') && !isCanadaDomain) {
     const caPathAdded = location.origin + '/ca' + location.pathname + location.search + location.hash
     urlsToTry.push(caPathAdded)
   }
@@ -68,12 +92,59 @@ const notify = () => {
     urlsToTry.push(caSubdomainAdded)
   }
   
-  // Try each URL until we find one that works
+  // Simple function to check if a page is likely in Catalan
+  const isLikelyCatalan = async (url) => {
+    try {
+      const response = await fetch(url)
+      if (!response.ok) return false
+      
+      const text = await response.text()
+      
+      // 1. First check HTML lang attribute (most reliable)
+      const langMatch = text.match(/<html[^>]*lang=["']([^"']*)/i)
+      if (langMatch) {
+        const lang = langMatch[1].toLowerCase()
+        // Accept if lang contains "ca" or "va" (Catalan or Valencian)
+        if (lang.includes('ca') || lang.includes('va')) return true
+        // For Canada-prone domains, reject if contains en OR fr
+        if (isCanadaDomain && (lang.includes('en') || lang.includes('fr'))) return false
+      }
+      
+      // 2. If no lang attribute, do simple keyword check
+      const lowerText = text.toLowerCase()
+      
+      // Check for Canada keywords (reject if found)
+      if (lowerText.includes('canada') || lowerText.includes('canadian') || lowerText.includes('canadien')) {
+        return false
+      }
+      
+      // Check for Catalan keywords (accept if found)
+      if (lowerText.includes('cat') || lowerText.includes('català') || lowerText.includes('catalan')) {
+        return true
+      }
+      
+      // If no clear indicators, assume it's worth trying
+      return true
+      
+    } catch (error) {
+      return false
+    }
+  }
+  
+  // Try each URL until we find one that works and is actually Catalan
   for (const url of urlsToTry) {
     if (url !== location.href) {
       try {
-        const response = await fetch(url)
+        const response = await fetch(url, { method: 'HEAD' }) // Use HEAD for faster check
         if (response.ok) {
+          // If it's a potentially problematic domain, verify it's actually Catalan
+          if (isCanadaDomain && url.includes('/ca/')) {
+            const isCatalan = await isLikelyCatalan(url)
+            if (!isCatalan) {
+              continue // Skip this URL, try the next one
+            }
+          }
+          
           location.href = url
           await GM.setValue('notify', true)
           break
