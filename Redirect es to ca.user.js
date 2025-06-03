@@ -1,12 +1,15 @@
 // ==UserScript==
-// @name        Redirect es to ca
-// @description Tries to redirect any url with /es or es. to /ca ca.
-// @namespace   https://github.com/tonioriol
-// @version     0.0.3
-// @match       *://*/*
-// @grant       GM.getValue
-// @grant       GM.setValue
-// @license     MIT
+// @name         Redirect es to ca
+// @namespace    https://github.com/tonioriol
+// @version      0.0.3
+// @description  Tries to redirect any url with /es or es. to /ca ca.
+// @author       Toni Oriol
+// @match        *://*/*
+// @grant        GM.getValue
+// @grant        GM.setValue
+// @license      MIT
+// @updateURL    https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/Redirect%20es%20to%20ca.user.js
+// @downloadURL  https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/Redirect%20es%20to%20ca.user.js
 // ==/UserScript==
 
 
