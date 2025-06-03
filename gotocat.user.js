@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GoToCat
 // @namespace    https://github.com/tonioriol
-// @version      0.3.0
+// @version      0.3.1
 // @description  Automatically redirects Spanish URLs to their Catalan equivalents
 // @author       Toni Oriol
 // @match        *://*/*
@@ -11,6 +11,14 @@
 // @updateURL    https://github.com/tonioriol/userscripts/raw/refs/heads/main/gotocat.user.js
 // @downloadURL  https://github.com/tonioriol/userscripts/raw/refs/heads/main/gotocat.user.js
 // ==/UserScript==
+
+const targetLangConfig = {
+  code: 'ca',
+  variants: ['ca', 'va'], // Catalan, Valencian
+  keywords: ['català', 'catalan', 'generalitat', 'ajuntament'],
+  rejections: ['canada', 'canadian', 'canadien'], // Content-based rejections
+  langRejections: ['en', 'fr'] // HTML lang attribute rejections (Canada/France conflicts)
+}
 
 const notify = () => {
   document.body.insertAdjacentHTML('beforeend',
@@ -42,14 +50,6 @@ const isTargetLanguage = async (url) => {
   } catch {
     return false
   }
-}
-
-const targetLangConfig = {
-  code: 'ca',
-  variants: ['ca', 'va'], // Catalan, Valencian
-  keywords: ['català', 'catalan', 'generalitat', 'ajuntament'],
-  rejections: ['canada', 'canadian', 'canadien'], // Content-based rejections
-  langRejections: ['en', 'fr'] // HTML lang attribute rejections (Canada/France conflicts)
 }
 
 (async () => {
