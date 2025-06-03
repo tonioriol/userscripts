@@ -40,13 +40,48 @@ const notify = () => {
   })
 
   const oldHref = location.href
-  const fixedHref = location.href.replace(/(\/es\/)/, '/ca/')
-
-  if (location.href !== fixedHref) {
-    const response = await fetch(fixedHref)
-    if (response.ok) {
-      location.href = fixedHref
-      await GM.setValue('notify', true)
+  
+  // Try multiple Catalan URL patterns
+  const urlsToTry = []
+  
+  // 1. Replace /es/ with /ca/ if it exists
+  const esPathReplaced = location.href.replace(/(\/es\/)/, '/ca/')
+  if (esPathReplaced !== location.href) {
+    urlsToTry.push(esPathReplaced)
+  }
+  
+  // 2. Replace es. subdomain with ca. if it exists
+  const esSubdomainReplaced = location.href.replace(/^(https?:\/\/)es\./, '$1ca.')
+  if (esSubdomainReplaced !== location.href) {
+    urlsToTry.push(esSubdomainReplaced)
+  }
+  
+  // 3. Always try adding /ca/ path if not already present
+  if (!location.pathname.includes('/ca/')) {
+    const caPathAdded = location.origin + '/ca' + location.pathname + location.search + location.hash
+    urlsToTry.push(caPathAdded)
+  }
+  
+  // 4. Always try ca. subdomain if not already present
+  if (!location.hostname.startsWith('ca.')) {
+    const caSubdomainAdded = location.href.replace(/^(https?:\/\/)/, '$1ca.')
+    urlsToTry.push(caSubdomainAdded)
+  }
+  
+  // Try each URL until we find one that works
+  for (const url of urlsToTry) {
+    if (url !== location.href) {
+      try {
+        const response = await fetch(url)
+        if (response.ok) {
+          location.href = url
+          await GM.setValue('notify', true)
+          break
+        }
+      } catch (error) {
+        // Continue to next URL if this one fails
+        continue
+      }
     }
   }
 })()
