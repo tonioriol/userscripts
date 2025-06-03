@@ -9,8 +9,8 @@
 // @grant        none
 // @run-at       document-start
 // @license      AGPL-3.0-or-later
-// @updateURL    https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/superpip.user.js
-// @downloadURL  https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/superpip.user.js
+// @updateURL    https://github.com/tonioriol/userscripts/raw/refs/heads/main/superpip.user.js
+// @downloadURL  https://github.com/tonioriol/userscripts/raw/refs/heads/main/superpip.user.js
 // ==/UserScript==
 
 (function () {

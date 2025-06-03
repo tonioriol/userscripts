@@ -7,8 +7,8 @@
 // @include      /^http(s)?:\/\/(www)?\.google\.\w*\/search.*$/
 // @grant        none
 // @license      AGPL-3.0-or-later
-// @updateURL    https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/lingoogle.user.js
-// @downloadURL  https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/lingoogle.user.js
+// @updateURL    https://github.com/tonioriol/userscripts/raw/refs/heads/main/lingoogle.user.js
+// @downloadURL  https://github.com/tonioriol/userscripts/raw/refs/heads/main/lingoogle.user.js
 // ==/UserScript==
 
 (function () {

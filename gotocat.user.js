@@ -8,8 +8,8 @@
 // @grant        GM.getValue
 // @grant        GM.setValue
 // @license      AGPL-3.0-or-later
-// @updateURL    https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/gotocat.user.js
-// @downloadURL  https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/gotocat.user.js
+// @updateURL    https://github.com/tonioriol/userscripts/raw/refs/heads/main/gotocat.user.js
+// @downloadURL  https://github.com/tonioriol/userscripts/raw/refs/heads/main/gotocat.user.js
 // ==/UserScript==
 
 

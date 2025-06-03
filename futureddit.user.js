@@ -8,8 +8,8 @@
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=reddit.com
 // @grant        none
 // @license      AGPL-3.0-or-later
-// @updateURL    https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/futureddit.user.js
-// @downloadURL  https://github.com/tonioriol/user-scripts-safari-ios/raw/refs/heads/main/futureddit.user.js
+// @updateURL    https://github.com/tonioriol/userscripts/raw/refs/heads/main/futureddit.user.js
+// @downloadURL  https://github.com/tonioriol/userscripts/raw/refs/heads/main/futureddit.user.js
 // ==/UserScript==
 
 (function() {
