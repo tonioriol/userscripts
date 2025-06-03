@@ -1,4 +1,4 @@
-# GotoCat
+# GoToCat
 
 Automatically redirects Spanish URLs to their Catalan equivalents - because navigating in your preferred language should be seamless!
 
@@ -11,7 +11,7 @@ Automatically redirects Spanish URLs to their Catalan equivalents - because navi
 
 ## How It Works
 
-GotoCat monitors the current page URL and:
+GoToCat monitors the current page URL and:
 
 1. **Detects Spanish URLs**: Looks for `/es/` patterns in the URL
 2. **Creates Catalan equivalent**: Replaces `/es/` with `/ca/`
@@ -29,7 +29,7 @@ Redirected to: https://example.com/ca/products
 ## Installation
 
 1. Install a userscript manager (Tampermonkey, Greasemonkey, etc.)
-2. Install GotoCat
+2. Install GoToCat
 3. Browse any website - automatic redirects will happen when Spanish→Catalan versions are available
 
 ## Perfect For
@@ -38,9 +38,9 @@ Redirected to: https://example.com/ca/products
 - **Bilingual websites** that offer both Spanish and Catalan versions
 - **Automatic language preference** without manual URL editing
 
-## Why GotoCat?
+## Why GoToCat?
 
-Because "goto" + "Catalan" = GotoCat! 🐱
+Because "goto" + "Catalan" = GoToCat! 🐱
 
 Perfect for seamlessly accessing Catalan content when browsing websites that default to Spanish.
 
