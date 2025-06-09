@@ -4,8 +4,8 @@ Collection of userscripts for Safari iOS and other browsers.
 
 ## Scripts
 
-### GoToCat
-Redirects Spanish URLs (`/es/`) to Catalan versions (`/ca/`) when they exist.
+### GoLocale
+Automatically redirects URLs to their preferred language equivalents. Configurable for any language pair.
 
 ### SuperPiP
 Enables native video controls and Picture-in-Picture on websites. Removes overlay elements that block video interaction.

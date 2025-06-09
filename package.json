@@ -1,0 +1,18 @@
+{
+  "name": "userscripts-720n",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "test": "vitest",
+    "generate-languages": "node generate-languages-json.js"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.2"
+  },
+  "dependencies": {
+    "cldr": "^7.9.0",
+    "franc": "^6.2.0",
+    "iso-639-3": "^3.0.1",
+    "langs": "^2.0.0"
+  }
+}
