@@ -47,7 +47,7 @@ const notify = (message, buttonText, callback) => {
       style="position: fixed; top: 10px; right: 10px; z-index: 999999; padding: 12px 12px 12px 32px; background: #333; color: white; border-radius: 4px; font: 14px sans-serif; ${!buttonText ? 'cursor: pointer;' : ''}"
       ${!buttonText ? 'onclick="this.parentElement.remove()"' : ''}>
       <button
-        style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; background: transparent; color: #ccc; border: none; cursor: pointer; font-size: 14px;"
+        style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; background: #666; color: white; border: none; border-radius: 0; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;"
         onclick="this.parentElement.parentElement.remove()">
         ×
       </button>
