@@ -20,6 +20,22 @@
   console.log("[SuperPiP] Document readyState:", document.readyState);
   console.log("[SuperPiP] User agent:", navigator.userAgent);
 
+  // Check if video is in viewport
+  function isVideoInViewport(video) {
+    const rect = video.getBoundingClientRect();
+    const viewHeight = window.innerHeight || document.documentElement.clientHeight;
+    const viewWidth = window.innerWidth || document.documentElement.clientWidth;
+    
+    return (
+      rect.top >= 0 &&
+      rect.left >= 0 &&
+      rect.bottom <= viewHeight &&
+      rect.right <= viewWidth &&
+      rect.width > 0 &&
+      rect.height > 0
+    );
+  }
+
   // Enhanced video setup for better UX
   function enableVideoControls(video) {
     // Always set controls, but only log if it's actually changing
@@ -34,11 +50,7 @@
       video.style.setProperty('--webkit-media-controls', 'none', 'important');
       video.controlsList = "nodownload nofullscreen noremoteplayback";
       
-      // Enable autoplay and unmute
-      video.muted = false;
-      video.autoplay = true;
-      
-      // Set up click handler to show/hide controls
+      // Set up enhanced functionality only once per video
       if (!video.hasAttribute('data-superpip-setup')) {
         video.setAttribute('data-superpip-setup', 'true');
         
@@ -60,6 +72,7 @@
         }, { capture: true });
         
         // Auto-unmute when playing (counter Instagram's nasty muting)
+        // This only triggers when video actually starts playing, not on setup
         video.addEventListener('play', () => {
           if (video.muted) {
             video.muted = false;
@@ -67,8 +80,9 @@
           }
         });
         
-        // Start playing if not already
-        if (video.paused && video.readyState >= 2) {
+        // Smart autoplay: only autoplay if video is in viewport
+        if (isVideoInViewport(video) && video.paused && video.readyState >= 2) {
+          console.log("[SuperPiP] Autoplaying video in viewport");
           video.play().catch(() => {}); // Ignore autoplay policy errors
         }
         
