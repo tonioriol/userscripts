@@ -20,7 +20,7 @@
   console.log("[SuperPiP] Document readyState:", document.readyState);
   console.log("[SuperPiP] User agent:", navigator.userAgent);
 
-  // Enable native controls for a specific video
+  // Enhanced video setup for better UX
   function enableVideoControls(video) {
     // Always set controls, but only log if it's actually changing
     if (!video.hasAttribute("controls")) {
@@ -28,6 +28,53 @@
     }
     try {
       video.setAttribute("controls", "");
+      
+      // Hide controls by default - will show on click
+      video.style.setProperty('--webkit-media-controls-panel', 'none', 'important');
+      video.style.setProperty('--webkit-media-controls', 'none', 'important');
+      video.controlsList = "nodownload nofullscreen noremoteplayback";
+      
+      // Enable autoplay and unmute
+      video.muted = false;
+      video.autoplay = true;
+      
+      // Set up click handler to show/hide controls
+      if (!video.hasAttribute('data-superpip-setup')) {
+        video.setAttribute('data-superpip-setup', 'true');
+        
+        let controlsVisible = false;
+        video.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          controlsVisible = !controlsVisible;
+          if (controlsVisible) {
+            video.style.removeProperty('--webkit-media-controls-panel');
+            video.style.removeProperty('--webkit-media-controls');
+            console.log("[SuperPiP] Controls shown");
+          } else {
+            video.style.setProperty('--webkit-media-controls-panel', 'none', 'important');
+            video.style.setProperty('--webkit-media-controls', 'none', 'important');
+            console.log("[SuperPiP] Controls hidden");
+          }
+        }, { capture: true });
+        
+        // Auto-unmute when playing (counter Instagram's nasty muting)
+        video.addEventListener('play', () => {
+          if (video.muted) {
+            video.muted = false;
+            console.log("[SuperPiP] Auto-unmuted video on play");
+          }
+        });
+        
+        // Start playing if not already
+        if (video.paused && video.readyState >= 2) {
+          video.play().catch(() => {}); // Ignore autoplay policy errors
+        }
+        
+        console.log("[SuperPiP] Enhanced video setup complete");
+      }
+      
       if (!video.hasAttribute("controls")) {
         console.log("[SuperPiP] Controls enabled successfully for video");
       }
