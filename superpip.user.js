@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SuperPiP
 // @namespace    https://github.com/tonioriol
-// @version      0.0.2
+// @version      0.0.1
 // @description  Enable native video controls with Picture-in-Picture functionality on any website
 // @author       SuperPiP
 // @match        https://*/*
@@ -277,42 +277,42 @@
       }, true);
 
       console.log("[SuperPiP] Event listeners set up successfully");
-
-      // iOS Safari specific handling (THIS IS WHAT ENABLES PIP ON YOUTUBE SPECIALLY)
-      console.log("[SuperPiP] Setting up iOS Safari specific handling...");
-      
-      document.addEventListener(
-        "touchstart",
-        function initOnTouch() {
-          console.log("[SuperPiP] Touch event detected, setting up iOS PiP handling");
-          let v = document.querySelector("video");
-          if (v) {
-            console.log("[SuperPiP] Found video for iOS PiP setup:", v);
-            v.addEventListener(
-              "webkitpresentationmodechanged",
-              (e) => {
-                console.log("[SuperPiP] webkitpresentationmodechanged event:", e);
-                e.stopPropagation();
-              },
-              true
-            );
-            // Remove the touchstart listener after we've initialized
-            document.removeEventListener("touchstart", initOnTouch);
-            console.log("[SuperPiP] iOS PiP handling set up successfully");
-          } else {
-            console.log("[SuperPiP] No video found for iOS PiP setup");
-          }
-        },
-        true
-      );
-
     } catch (error) {
       console.error("[SuperPiP] Error during initialization:", error);
     }
   }
+
+  // iOS Safari specific handling (THIS IS WHAT ENABLES PIP ON YOUTUBE SPECIALLY)
+  console.log("[SuperPiP] Setting up iOS Safari specific handling...");
+  
+  document.addEventListener(
+    "touchstart",
+    function initOnTouch() {
+      console.log("[SuperPiP] Touch event detected, setting up iOS PiP handling");
+      let v = document.querySelector("video");
+      if (v) {
+        console.log("[SuperPiP] Found video for iOS PiP setup:", v);
+        v.addEventListener(
+          "webkitpresentationmodechanged",
+          (e) => {
+            console.log("[SuperPiP] webkitpresentationmodechanged event:", e);
+            e.stopPropagation();
+          },
+          true
+        );
+        // Remove the touchstart listener after we've initialized
+        document.removeEventListener("touchstart", initOnTouch);
+        console.log("[SuperPiP] iOS PiP handling set up successfully");
+      } else {
+        console.log("[SuperPiP] No video found for iOS PiP setup");
+      }
+    },
+    true
+  );
 
   // Start immediately since we're running at document-start
   console.log("[SuperPiP] Starting initialization...");
   init();
   console.log("[SuperPiP] Script initialization complete");
 })();
+
