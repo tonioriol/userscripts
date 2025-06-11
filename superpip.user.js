@@ -92,7 +92,7 @@
         console.log("[SuperPiP] Enhanced video setup complete");
       }
       
-      if (!video.hasAttribute("controls")) {
+      if (video.hasAttribute("controls")) {
         console.log("[SuperPiP] Controls enabled successfully for video");
       }
     } catch (error) {
@@ -192,7 +192,6 @@
       console.log("[SuperPiP] Setting up mutation observer...");
       const observer = new MutationObserver((mutations) => {
         // Pre-filter: only process mutations that might involve videos
-        let hasVideoChanges = false;
         let newVideoCount = 0;
 
         mutations.forEach((mutation) => {
@@ -205,7 +204,6 @@
                   enableVideoControls(node);
                   detectVideoOverlays(node);
                   newVideoCount++;
-                  hasVideoChanges = true;
                 } else if (node.querySelector) {
                   // Check if added node contains video elements
                   const videos = node.querySelectorAll("video");
@@ -215,7 +213,6 @@
                       detectVideoOverlays(video);
                     });
                     newVideoCount += videos.length;
-                    hasVideoChanges = true;
                   }
                 }
               }
@@ -230,13 +227,11 @@
             if (mutation.attributeName === "controls" && !video.hasAttribute("controls")) {
               console.log("[SuperPiP] Re-enabling removed controls");
               enableVideoControls(video);
-              hasVideoChanges = true;
             }
             
             // Re-process overlays for any video attribute change that might affect layout
             if (["src", "style", "class", "width", "height"].includes(mutation.attributeName)) {
               detectVideoOverlays(video);
-              hasVideoChanges = true;
             }
           }
         });
