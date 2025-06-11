@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SuperPiP
 // @namespace    https://github.com/tonioriol
-// @version      0.0.1
+// @version      0.0.74
 // @description  Enable native video controls with Picture-in-Picture functionality on any website
 // @author       SuperPiP
 // @match        https://*/*
@@ -45,31 +45,10 @@
     try {
       video.setAttribute("controls", "");
       
-      // Hide controls by default - will show on click
-      video.style.setProperty('--webkit-media-controls-panel', 'none', 'important');
-      video.style.setProperty('--webkit-media-controls', 'none', 'important');
-      video.controlsList = "nodownload nofullscreen noremoteplayback";
-      
       // Set up enhanced functionality only once per video
       if (!video.hasAttribute('data-superpip-setup')) {
         video.setAttribute('data-superpip-setup', 'true');
         
-        let controlsVisible = false;
-        video.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          
-          controlsVisible = !controlsVisible;
-          if (controlsVisible) {
-            video.style.removeProperty('--webkit-media-controls-panel');
-            video.style.removeProperty('--webkit-media-controls');
-            console.log("[SuperPiP] Controls shown");
-          } else {
-            video.style.setProperty('--webkit-media-controls-panel', 'none', 'important');
-            video.style.setProperty('--webkit-media-controls', 'none', 'important');
-            console.log("[SuperPiP] Controls hidden");
-          }
-        }, { capture: true });
         
         // Auto-unmute when playing (counter Instagram's nasty muting)
         let videoShouldBeUnmuted = false;
