@@ -72,13 +72,37 @@
         }, { capture: true });
         
         // Auto-unmute when playing (counter Instagram's nasty muting)
-        // This only triggers when video actually starts playing, not on setup
+        let videoShouldBeUnmuted = false;
+        
         video.addEventListener('play', () => {
+          videoShouldBeUnmuted = true;
           if (video.muted) {
             video.muted = false;
             console.log("[SuperPiP] Auto-unmuted video on play");
           }
         });
+        
+        video.addEventListener('pause', () => {
+          videoShouldBeUnmuted = false;
+        });
+        
+        // Override the muted property to prevent programmatic muting during playback
+        const originalMutedDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'muted');
+        if (originalMutedDescriptor) {
+          Object.defineProperty(video, 'muted', {
+            get: function() {
+              return originalMutedDescriptor.get.call(this);
+            },
+            set: function(value) {
+              // If video is playing and something tries to mute it, prevent it
+              if (value === true && videoShouldBeUnmuted && !this.paused) {
+                console.log("[SuperPiP] Blocked attempt to mute playing video");
+                return;
+              }
+              return originalMutedDescriptor.set.call(this, value);
+            }
+          });
+        }
         
         // Smart autoplay: only autoplay if video is in viewport
         if (isVideoInViewport(video) && video.paused && video.readyState >= 2) {
