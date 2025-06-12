@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SuperPiP
 // @namespace    https://github.com/tonioriol
-// @version      0.0.74
+// @version      0.1.0
 // @description  Enable native video controls with Picture-in-Picture functionality on any website
 // @author       SuperPiP
 // @match        https://*/*
@@ -134,7 +134,7 @@
         const zIndex = parseInt(style.zIndex) || 0;
 
         // element must be within video bounds AND positioned
-        const isPositioned = !["relative"].includes(style.position);
+        const isPositioned = ["absolute"].includes(style.position);
         const isOnTop = isPositioned && zIndex >= videoZIndex;
         const isWithinBounds =
           rect.left >= videoRect.left &&
