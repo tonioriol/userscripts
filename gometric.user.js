@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GoMetric
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.0
+// @version      0.1.1
 // @description  Automatically converts imperial units to metric units and currencies
 // @author       Toni Oriol
 // @match        *://*/*

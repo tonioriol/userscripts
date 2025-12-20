@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VsixDL
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.0.1
+// @version      0.0.2
 // @description  Adds download button for VSCode extensions
 // @author       Toni Oriol
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=visualstudio.com
