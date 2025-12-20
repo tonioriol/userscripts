@@ -4,29 +4,41 @@ Collection of userscripts for Safari iOS and other browsers.
 
 ## Scripts
 
-### GoLocale
+### CrossLemmy
 
-Automatically redirects URLs to their preferred language equivalents. Configurable for any language pair.
-
-### SuperPiP
-
-Enables native video controls and Picture-in-Picture on websites. Removes overlay elements that block video interaction.
+Subscribe to Lemmy communities from any instance using your home instance.
 
 ### FutuReddit
 
 Redirects `old.reddit.com` to `www.reddit.com`.
 
+### GoLocale
+
+Automatically redirects URLs to their preferred language equivalents. Configurable for any language pair.
+
+### GoMetric
+
+Unit conversion functionality.
+
+### InfuseIO
+
+Integration between Stremio and Infuse iOS.
+
 ### LinGoogle
 
 Adds language filter buttons to Google search results. Default languages: Catalan, Spanish, English, Swedish.
 
-### StremioToInfuseIOS
+### PaywallBreaker
 
-Integration between Stremio and Infuse iOS.
+Context menu shortcuts to bypass article paywalls using 12ft.io.
 
-### Universal Metric Translator
+### SuperPiP
 
-Unit conversion functionality.
+Enables native video controls and Picture-in-Picture on websites. Removes overlay elements that block video interaction.
+
+### VsixDL
+
+Adds download button for VSCode extensions on the Visual Studio Marketplace.
 
 ## Installation
 
