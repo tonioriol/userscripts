@@ -13,9 +13,11 @@ Enables native video controls with Picture-in-Picture functionality on websites.
 ## Installation
 
 ### From Greasyfork
+
 Install from [Greasyfork](https://greasyfork.org/en/scripts/538178-superpip)
 
 ### Manual Installation
+
 1. Install a userscript manager (Tampermonkey, Violentmonkey, etc.)
 2. Install the script from `superpip.user.js`
 3. Script works automatically on all websites

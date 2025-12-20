@@ -23,9 +23,10 @@
   // Check if video is in viewport
   function isVideoInViewport(video) {
     const rect = video.getBoundingClientRect();
-    const viewHeight = window.innerHeight || document.documentElement.clientHeight;
+    const viewHeight =
+      window.innerHeight || document.documentElement.clientHeight;
     const viewWidth = window.innerWidth || document.documentElement.clientWidth;
-    
+
     return (
       rect.top >= 0 &&
       rect.left >= 0 &&
@@ -44,54 +45,56 @@
     }
     try {
       video.setAttribute("controls", "");
-      
+
       // Set up enhanced functionality only once per video
-      if (!video.hasAttribute('data-superpip-setup')) {
-        video.setAttribute('data-superpip-setup', 'true');
-        
-        
+      if (!video.hasAttribute("data-superpip-setup")) {
+        video.setAttribute("data-superpip-setup", "true");
+
         // Auto-unmute when playing (counter Instagram's nasty muting)
         let videoShouldBeUnmuted = false;
-        
-        video.addEventListener('play', () => {
+
+        video.addEventListener("play", () => {
           videoShouldBeUnmuted = true;
           if (video.muted) {
             video.muted = false;
             console.log("[SuperPiP] Auto-unmuted video on play");
           }
         });
-        
-        video.addEventListener('pause', () => {
+
+        video.addEventListener("pause", () => {
           videoShouldBeUnmuted = false;
         });
-        
+
         // Override the muted property to prevent programmatic muting during playback
-        const originalMutedDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'muted');
+        const originalMutedDescriptor = Object.getOwnPropertyDescriptor(
+          HTMLMediaElement.prototype,
+          "muted"
+        );
         if (originalMutedDescriptor) {
-          Object.defineProperty(video, 'muted', {
-            get: function() {
+          Object.defineProperty(video, "muted", {
+            get: function () {
               return originalMutedDescriptor.get.call(this);
             },
-            set: function(value) {
+            set: function (value) {
               // If video is playing and something tries to mute it, prevent it
               if (value === true && videoShouldBeUnmuted && !this.paused) {
                 console.log("[SuperPiP] Blocked attempt to mute playing video");
                 return;
               }
               return originalMutedDescriptor.set.call(this, value);
-            }
+            },
           });
         }
-        
+
         // Smart autoplay: only autoplay if video is in viewport
         if (isVideoInViewport(video) && video.paused && video.readyState >= 2) {
           console.log("[SuperPiP] Autoplaying video in viewport");
           video.play().catch(() => {}); // Ignore autoplay policy errors
         }
-        
+
         console.log("[SuperPiP] Enhanced video setup complete");
       }
-      
+
       if (video.hasAttribute("controls")) {
         console.log("[SuperPiP] Controls enabled successfully for video");
       }
@@ -107,7 +110,7 @@
   function detectVideoOverlays(video) {
     try {
       const videoRect = video.getBoundingClientRect();
-      
+
       // Skip processing if video has no dimensions (not rendered yet) but don't log
       if (videoRect.width === 0 || videoRect.height === 0) {
         return [];
@@ -123,7 +126,11 @@
       const overlays = [];
       const allElements = document.querySelectorAll("*");
 
-      console.log("[SuperPiP] Checking", allElements.length, "elements for overlays");
+      console.log(
+        "[SuperPiP] Checking",
+        allElements.length,
+        "elements for overlays"
+      );
 
       allElements.forEach((element) => {
         // Skip the video itself and its containers
@@ -154,7 +161,11 @@
             zIndex: zIndex,
           });
 
-          console.log("[SuperPiP] Hiding overlay element:", element.tagName, element.className);
+          console.log(
+            "[SuperPiP] Hiding overlay element:",
+            element.tagName,
+            element.className
+          );
           element.style.display = "none";
         }
       });
@@ -172,9 +183,14 @@
     console.log("[SuperPiP] Processing videos...");
     const videos = document.querySelectorAll("video");
     console.log("[SuperPiP] Found", videos.length, "video elements");
-    
+
     videos.forEach((video, index) => {
-      console.log("[SuperPiP] Processing video", index + 1, "of", videos.length);
+      console.log(
+        "[SuperPiP] Processing video",
+        index + 1,
+        "of",
+        videos.length
+      );
       enableVideoControls(video);
       detectVideoOverlays(video);
     });
@@ -183,7 +199,7 @@
   // Initialize and set up observers
   function init() {
     console.log("[SuperPiP] Initializing...");
-    
+
     try {
       // Process any existing videos
       processVideos();
@@ -198,7 +214,8 @@
           // Handle new nodes being added
           if (mutation.type === "childList") {
             mutation.addedNodes.forEach((node) => {
-              if (node.nodeType === 1) { // Element node
+              if (node.nodeType === 1) {
+                // Element node
                 if (node.tagName === "VIDEO") {
                   // Direct video element added
                   enableVideoControls(node);
@@ -218,19 +235,29 @@
               }
             });
           }
-          
+
           // Handle attribute changes on video elements
-          if (mutation.type === "attributes" && mutation.target.tagName === "VIDEO") {
+          if (
+            mutation.type === "attributes" &&
+            mutation.target.tagName === "VIDEO"
+          ) {
             const video = mutation.target;
-            
+
             // Re-enable controls if they were removed
-            if (mutation.attributeName === "controls" && !video.hasAttribute("controls")) {
+            if (
+              mutation.attributeName === "controls" &&
+              !video.hasAttribute("controls")
+            ) {
               console.log("[SuperPiP] Re-enabling removed controls");
               enableVideoControls(video);
             }
-            
+
             // Re-process overlays for any video attribute change that might affect layout
-            if (["src", "style", "class", "width", "height"].includes(mutation.attributeName)) {
+            if (
+              ["src", "style", "class", "width", "height"].includes(
+                mutation.attributeName
+              )
+            ) {
               detectVideoOverlays(video);
             }
           }
@@ -245,11 +272,11 @@
       // Start observing - use document.documentElement if body doesn't exist yet
       const target = document.body || document.documentElement;
       console.log("[SuperPiP] Observing target:", target.tagName);
-      
+
       observer.observe(target, {
         childList: true,
         subtree: true,
-        attributes: true
+        attributes: true,
         // No attributeFilter - listen to all attributes but filter by video tagName in callback
       });
 
@@ -257,22 +284,30 @@
 
       // Handle video events for when videos start loading or playing
       console.log("[SuperPiP] Setting up video event listeners...");
-      
-      document.addEventListener("loadstart", (e) => {
-        if (e.target.tagName === "VIDEO") {
-          console.log("[SuperPiP] Video loadstart event:", e.target);
-          enableVideoControls(e.target);
-          detectVideoOverlays(e.target);
-        }
-      }, true);
 
-      document.addEventListener("loadedmetadata", (e) => {
-        if (e.target.tagName === "VIDEO") {
-          console.log("[SuperPiP] Video loadedmetadata event:", e.target);
-          enableVideoControls(e.target);
-          detectVideoOverlays(e.target);
-        }
-      }, true);
+      document.addEventListener(
+        "loadstart",
+        (e) => {
+          if (e.target.tagName === "VIDEO") {
+            console.log("[SuperPiP] Video loadstart event:", e.target);
+            enableVideoControls(e.target);
+            detectVideoOverlays(e.target);
+          }
+        },
+        true
+      );
+
+      document.addEventListener(
+        "loadedmetadata",
+        (e) => {
+          if (e.target.tagName === "VIDEO") {
+            console.log("[SuperPiP] Video loadedmetadata event:", e.target);
+            enableVideoControls(e.target);
+            detectVideoOverlays(e.target);
+          }
+        },
+        true
+      );
 
       console.log("[SuperPiP] Event listeners set up successfully");
     } catch (error) {
@@ -282,11 +317,13 @@
 
   // iOS Safari specific handling (THIS IS WHAT ENABLES PIP ON YOUTUBE SPECIALLY)
   console.log("[SuperPiP] Setting up iOS Safari specific handling...");
-  
+
   document.addEventListener(
     "touchstart",
     function initOnTouch() {
-      console.log("[SuperPiP] Touch event detected, setting up iOS PiP handling");
+      console.log(
+        "[SuperPiP] Touch event detected, setting up iOS PiP handling"
+      );
       let v = document.querySelector("video");
       if (v) {
         console.log("[SuperPiP] Found video for iOS PiP setup:", v);
@@ -313,4 +350,3 @@
   init();
   console.log("[SuperPiP] Script initialization complete");
 })();
-

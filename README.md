@@ -5,21 +5,27 @@ Collection of userscripts for Safari iOS and other browsers.
 ## Scripts
 
 ### GoLocale
+
 Automatically redirects URLs to their preferred language equivalents. Configurable for any language pair.
 
 ### SuperPiP
+
 Enables native video controls and Picture-in-Picture on websites. Removes overlay elements that block video interaction.
 
 ### FutuReddit
+
 Redirects `old.reddit.com` to `www.reddit.com`.
 
 ### LinGoogle
+
 Adds language filter buttons to Google search results. Default languages: Catalan, Spanish, English, Swedish.
 
 ### StremioToInfuseIOS
+
 Integration between Stremio and Infuse iOS.
 
 ### Universal Metric Translator
+
 Unit conversion functionality.
 
 ## Installation
