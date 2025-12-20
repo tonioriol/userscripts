@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GoLocale
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.4.0
+// @version      0.4.1
 // @description  Automatically redirects URLs to their preferred language equivalents
 // @author       Toni Oriol
 // @match        *://*/*

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PaywallBreaker
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.0.1
+// @version      0.0.2
 // @description  Context menu shortcuts to bypass article paywalls using 12ft.io
 // @author       Toni Oriol
 // @license      AGPL-3.0-or-later
