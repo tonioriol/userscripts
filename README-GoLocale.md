@@ -28,14 +28,15 @@ Edit the `LANGUAGE_CONFIG` object to set your preferred languages:
 
 ```javascript
 const LANGUAGE_CONFIG = {
-  targetLang: "ca",  // Primary target language (ISO code)
-  altLang: "va"      // Alternative target language (optional)
+  targetLang: "ca", // Primary target language (ISO code)
+  altLang: "va", // Alternative target language (optional)
 };
 ```
 
 ## Examples
 
 With default Catalan configuration:
+
 ```
 Original: https://example.com/es/products
 Redirected to: https://example.com/ca/products
@@ -45,11 +46,12 @@ Redirected to: https://ca.wikipedia.org/wiki/Barcelona
 ```
 
 For other languages, just change the configuration:
+
 ```javascript
 // French configuration
 const LANGUAGE_CONFIG = {
   targetLang: "fr",
-  altLang: null
+  altLang: null,
 };
 ```
 

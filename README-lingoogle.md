@@ -20,7 +20,7 @@ Adds language filter buttons to Google search for quick language switching.
 To change the languages, edit the `langList` array in the script:
 
 ```javascript
-const langList = ['ca', 'es', 'en', 'sv'] // Add your preferred language codes
+const langList = ["ca", "es", "en", "sv"]; // Add your preferred language codes
 ```
 
 Use ISO 639-1 language codes (e.g., 'fr' for French, 'de' for German, 'it' for Italian).

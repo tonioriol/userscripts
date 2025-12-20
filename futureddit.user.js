@@ -12,7 +12,10 @@
 // @downloadURL  https://github.com/tonioriol/userscripts/raw/refs/heads/main/futureddit.user.js
 // ==/UserScript==
 
-(function() {
-    'use strict';
-    window.location.href = window.location.href.replace("old.reddit.com", "www.reddit.com")
+(function () {
+  "use strict";
+  window.location.href = window.location.href.replace(
+    "old.reddit.com",
+    "www.reddit.com"
+  );
 })();
