@@ -5,6 +5,7 @@
 // @description  Automatically converts imperial units to metric units and currencies
 // @author       Toni Oriol
 // @match        *://*/*
+// @icon         📏
 // @grant        none
 // @license      AGPL-3.0-or-later
 // @updateURL    https://github.com/tonioriol/userscripts/raw/refs/heads/main/gometric.user.js

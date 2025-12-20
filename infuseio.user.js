@@ -4,6 +4,7 @@
 // @version      0.0.1
 // @description  Redirects Stremio Web video streams to Infuse app on iOS Safari
 // @author       Toni Oriol
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=strem.io
 // @match        *://web.strem.io/*
 // @grant        none
 // @license      AGPL-3.0-or-later

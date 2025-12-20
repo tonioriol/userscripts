@@ -5,6 +5,7 @@
 // @description  Subscribe to communities from any Lemmy instance using your home instance
 // @author       Toni Oriol
 // @match        https://*/*
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=lemmy.ml
 // @grant        none
 // @license      AGPL-3.0-or-later
 // @updateURL    https://github.com/tonioriol/userscripts/raw/refs/heads/main/crosslemmy.user.js

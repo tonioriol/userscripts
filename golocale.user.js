@@ -5,6 +5,7 @@
 // @description  Automatically redirects URLs to their preferred language equivalents
 // @author       Toni Oriol
 // @match        *://*/*
+// @icon         🌐
 // @grant        GM.getValue
 // @grant        GM.setValue
 // @license      AGPL-3.0-or-later

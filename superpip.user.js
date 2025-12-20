@@ -6,6 +6,7 @@
 // @author       Toni Oriol
 // @match        https://*/*
 // @match        http://*/*
+// @icon         📺
 // @grant        none
 // @run-at       document-start
 // @license      AGPL-3.0-or-later
