@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CrossLemmy
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      1.0.1
+// @version      1.0.2
 // @description  Subscribe to communities from any Lemmy instance using your home instance
 // @author       Toni Oriol
 // @match        https://*/*
