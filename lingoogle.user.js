@@ -5,6 +5,7 @@
 // @description  Add language filter buttons to Google search for quick language switching
 // @author       Toni Oriol
 // @include      /^http(s)?:\/\/(www)?\.google\.\w*\/search.*$/
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=google.com
 // @grant        none
 // @license      AGPL-3.0-or-later
 // @updateURL    https://github.com/tonioriol/userscripts/raw/refs/heads/main/lingoogle.user.js

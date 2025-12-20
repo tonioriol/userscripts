@@ -5,6 +5,7 @@
 // @description  Context menu shortcuts to bypass article paywalls using 12ft.io
 // @author       Toni Oriol
 // @license      AGPL-3.0-or-later
+// @icon         🔓
 // @match        *://*/*
 // @grant        GM_registerMenuCommand
 // @grant        GM_openInTab

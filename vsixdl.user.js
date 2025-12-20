@@ -4,6 +4,7 @@
 // @version      0.0.1
 // @description  Adds download button for VSCode extensions
 // @author       Toni Oriol
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=visualstudio.com
 // @match        https://marketplace.visualstudio.com/items?itemName=*
 // @grant        none
 // @license      AGPL-3.0-or-later
