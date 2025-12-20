@@ -6,7 +6,7 @@
 // @author       Toni Oriol
 // @match        *://*/*
 // @grant        none
-// @license      MIT
+// @license      AGPL-3.0-or-later
 // @updateURL    https://github.com/tonioriol/userscripts/raw/refs/heads/main/gometric.user.js
 // @downloadURL  https://github.com/tonioriol/userscripts/raw/refs/heads/main/gometric.user.js
 // ==/UserScript==

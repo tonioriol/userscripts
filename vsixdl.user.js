@@ -1,14 +1,14 @@
 // ==UserScript==
-// @name         VSCode Marketplace VSIX Downloader
+// @name         VsixDL
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      1.0
+// @version      0.0.1
 // @description  Adds download button for VSCode extensions
 // @author       Toni Oriol
 // @match        https://marketplace.visualstudio.com/items?itemName=*
 // @grant        none
-// @license      MIT
-// @updateURL    https://github.com/tonioriol/userscripts/raw/refs/heads/main/vscode-marketplace-downloader.user.js
-// @downloadURL  https://github.com/tonioriol/userscripts/raw/refs/heads/main/vscode-marketplace-downloader.user.js
+// @license      AGPL-3.0-or-later
+// @updateURL    https://github.com/tonioriol/userscripts/raw/refs/heads/main/vsixdl.user.js
+// @downloadURL  https://github.com/tonioriol/userscripts/raw/refs/heads/main/vsixdl.user.js
 // ==/UserScript==
 
 (function () {

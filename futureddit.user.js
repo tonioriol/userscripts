@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         FutuReddit
-// @namespace    https://github.com/tonioriol
+// @namespace    https://github.com/tonioriol/userscripts
 // @version      0.0.2
 // @description  Automatically redirects old Reddit to modern Reddit interface
 // @author       Toni Oriol

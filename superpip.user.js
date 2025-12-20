@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         SuperPiP
-// @namespace    https://github.com/tonioriol
+// @namespace    https://github.com/tonioriol/userscripts
 // @version      0.1.0
 // @description  Enable native video controls with Picture-in-Picture functionality on any website
-// @author       SuperPiP
+// @author       Toni Oriol
 // @match        https://*/*
 // @match        http://*/*
 // @grant        none
