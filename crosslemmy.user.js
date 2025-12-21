@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         CrossLemmy
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      1.0.2
+// @version      1.0.3
 // @description  Subscribe to communities from any Lemmy instance using your home instance
 // @author       Toni Oriol
 // @match        https://*/*
-// @icon         https://www.google.com/s2/favicons?sz=64&domain=lemmy.ml
+// @icon         data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%2300D1B2%22%3E%3Cpath d=%22M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z%22/%3E%3C/svg%3E
 // @grant        none
 // @license      AGPL-3.0-or-later
 // @updateURL    https://github.com/tonioriol/userscripts/raw/refs/heads/main/crosslemmy.user.js
