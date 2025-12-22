@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GoMetric
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.1
+// @version      0.1.2
 // @description  Automatically converts imperial units to metric units and currencies
 // @author       Toni Oriol
 // @match        *://*/*
@@ -20,6 +20,9 @@
   // ======================================
 
   let exchangeRates = null;
+
+  // Detect decimal separator from browser locale
+  const decimalSeparator = (1.1).toLocaleString().substring(1, 2);
 
   // Currency symbols mapping
   const currencySymbols = {
@@ -407,8 +410,11 @@
       const amountBefore = match[3];
       const code = match[4];
 
+      // Parse number using browser's locale decimal separator
+      const numStr = amountAfter || amountBefore;
+      const thousandsSeparator = decimalSeparator === ',' ? '.' : ',';
       const amount = parseFloat(
-        (amountAfter || amountBefore).replace(/,/g, "")
+        numStr.replace(new RegExp('\\' + thousandsSeparator, 'g'), '').replace(decimalSeparator, '.')
       );
       const currency = currencySymbols[symbol] || code;
 
