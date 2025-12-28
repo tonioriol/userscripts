@@ -8,6 +8,10 @@ Collection of userscripts for Safari iOS and other browsers.
 
 Subscribe to Lemmy communities from any instance using your home instance.
 
+### FilmStremio
+
+Adds a Stremio play icon next to movie titles on FilmAffinity for quick streaming access.
+
 ### FutuReddit
 
 Redirects `old.reddit.com` to `www.reddit.com`.
