@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GoMetric
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.2
+// @version      0.1.3
 // @description  Automatically converts imperial units to metric units and currencies
 // @author       Toni Oriol
 // @match        *://*/*
@@ -162,7 +162,7 @@
       scale: scales.none,
     },
     {
-      pattern: "(?:sq ft|square feet|ft²)",
+      pattern: "(?:sqft|sq ft|square feet|ft²)",
       unit: "m²",
       factor: 0.092903,
       scale: scales.none,
@@ -338,7 +338,7 @@
   // Compile regex patterns once for performance
   conversions.forEach((rule) => {
     rule.regex = new RegExp(
-      `(?:^|\\s)((\\d\\s)?[0-9]+(?:\\.[0-9]+)?(?:/[0-9]+(?:\\.[0-9]+)?)?)\\s*(${rule.pattern})\\b(?!(\\s\\[))`,
+      `(?:^|\\s)((\\d\\s)?[0-9,]+(?:\\.[0-9]+)?(?:/[0-9]+(?:\\.[0-9]+)?)?)\\s*(${rule.pattern})\\b(?!(\\s\\[))`,
       "gi"
     );
   });
@@ -392,9 +392,9 @@
     const rates = await fetchRates();
     if (!rates) return text;
 
-    // Match currency patterns: £583.80, $99.99, 50 USD
+    // Match currency patterns: £583.80, $99.99, 50 USD, $3,489,000, €1.234.567,89
     const regex =
-      /([£$€¥₹₽₩₪₺])\s*([0-9,]+(?:\.[0-9]{2})?)|([0-9,]+(?:\.[0-9]{2})?)\s*(USD|EUR|GBP|JPY|CNY)/gi;
+      /([£$€¥₹₽₩₪₺])\s*([0-9,.]+)|([0-9,.]+)\s*(USD|EUR|GBP|JPY|CNY)/gi;
     const matches = [];
     let match;
 
@@ -410,12 +410,19 @@
       const amountBefore = match[3];
       const code = match[4];
 
-      // Parse number using browser's locale decimal separator
+      // Smart parsing: last separator with 2 digits after = decimal, otherwise = thousands
       const numStr = amountAfter || amountBefore;
-      const thousandsSeparator = decimalSeparator === ',' ? '.' : ',';
-      const amount = parseFloat(
-        numStr.replace(new RegExp('\\' + thousandsSeparator, 'g'), '').replace(decimalSeparator, '.')
-      );
+      const lastDot = numStr.lastIndexOf('.');
+      const lastComma = numStr.lastIndexOf(',');
+      const lastSep = Math.max(lastDot, lastComma);
+      const digitsAfter = lastSep >= 0 ? numStr.length - lastSep - 1 : 0;
+      
+      const amount = digitsAfter === 2 && lastDot > lastComma
+        ? parseFloat(numStr.replace(/,/g, ''))  // $1,234.56
+        : digitsAfter === 2 && lastComma > lastDot
+        ? parseFloat(numStr.replace(/\./g, '').replace(',', '.'))  // €1.234,56
+        : parseFloat(numStr.replace(/[,.]/g, ''));  // $1,234,567 or €1.234.567
+      
       const currency = currencySymbols[symbol] || code;
 
       if (currency && currency.toLowerCase() !== HOME_CURRENCY.toLowerCase()) {
@@ -434,9 +441,14 @@
       const rate = rates[currency.toLowerCase()];
 
       if (rate) {
-        const converted = Math.round((amount / rate) * 100) / 100;
+        const converted = amount / rate;
         const sym = getSymbol(HOME_CURRENCY);
-        const replacement = `${original} [${sym}${converted}]`;
+        // Format with locale-aware thousands and decimal separators
+        const formatted = converted.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        });
+        const replacement = `${original} [${sym}${formatted}]`;
         text =
           text.slice(0, index) +
           replacement +
@@ -447,9 +459,12 @@
     return text;
   };
 
-  // Main transformation function
-  const transformText = (text) => {
-    // Apply each conversion rule to the text
+  // Main transformation function (async - handles both currency and units)
+  const transformText = async (text) => {
+    // Apply currency conversion first
+    text = await transformCurrency(text);
+
+    // Apply each unit conversion rule to the text
     conversions.forEach((rule) => {
       rule.regex.lastIndex = 0;
       let match;
@@ -489,39 +504,98 @@
     return text;
   };
 
-  // Process a single text node
+  // Check if text contains any unit keyword (without requiring numbers)
+  const containsUnit = (text) => {
+    // Extract just the unit patterns (without number requirements)
+    const unitPatterns = conversions.map(rule => rule.pattern).join('|');
+    const unitRegex = new RegExp(`\\b(${unitPatterns})\\b`, 'i');
+    return unitRegex.test(text);
+  };
+
+  // Find the appropriate parent element for context
+  const findContextParent = (node) => {
+    const containerTags = ['li', 'td', 'th', 'div', 'p', 'span'];
+    let parent = node.parentElement;
+    
+    // Go up to 3 levels looking for a container element
+    for (let i = 0; i < 3 && parent; i++) {
+      const tag = parent.tagName?.toLowerCase();
+      if (containerTags.includes(tag)) {
+        return parent;
+      }
+      parent = parent.parentElement;
+    }
+    
+    return node.parentElement; // Fallback to immediate parent
+  };
+
+  // Process a text node
   const processTextNode = async (node) => {
-    let text = node.nodeValue;
-
-    // Apply currency conversion
-    text = await transformCurrency(text);
-
-    // Apply unit conversions
-    text = transformText(text);
-
-    if (text !== node.nodeValue) {
-      node.nodeValue = text;
+    const text = node.nodeValue;
+    
+    // If this node contains a unit, try parent context for split patterns
+    if (containsUnit(text) && node.parentElement) {
+      const contextParent = findContextParent(node);
+      if (!contextParent) {
+        // Normal processing if no context parent
+        const transformed = await transformText(text);
+        if (transformed !== text) {
+          node.nodeValue = transformed;
+        }
+        return;
+      }
+      
+      const parentText = contextParent.textContent;
+      const transformedParent = await transformText(parentText);
+      
+      // Only proceed if a conversion was actually added
+      if (parentText !== transformedParent) {
+        // Extract NEW conversions (those not already in parent)
+        const existingConversions = parentText.match(/\[[^\]]+\]/g) || [];
+        const allConversions = transformedParent.match(/\[[^\]]+\]/g) || [];
+        
+        // Find conversions that are new
+        const newConversions = allConversions.slice(existingConversions.length);
+        
+        if (newConversions.length > 0) {
+          // Insert new conversions after this text node
+          for (const conversion of newConversions) {
+            const conversionNode = document.createTextNode(` ${conversion}`);
+            node.parentNode.insertBefore(conversionNode, node.nextSibling);
+          }
+          return;
+        }
+      }
+    }
+    
+    // Normal text processing
+    const transformed = await transformText(text);
+    if (transformed !== text) {
+      node.nodeValue = transformed;
     }
   };
 
   // Walk through all DOM nodes recursively
-  const walkDOM = (node) => {
+  const walkDOM = async (node) => {
     // If it's a text node, process it
     if (node.nodeType === Node.TEXT_NODE) {
-      processTextNode(node);
+      await processTextNode(node);
     }
-    // If it's an element, document, or fragment, walk through its children
-    else if (
-      [
-        Node.ELEMENT_NODE,
-        Node.DOCUMENT_NODE,
-        Node.DOCUMENT_FRAGMENT_NODE,
-      ].includes(node.nodeType)
-    ) {
+    // If it's an element, walk through its children
+    else if (node.nodeType === Node.ELEMENT_NODE) {
       let child = node.firstChild;
       while (child) {
         const nextSibling = child.nextSibling;
-        walkDOM(child);
+        await walkDOM(child);
+        child = nextSibling;
+      }
+    }
+    // If it's document or fragment, walk through children
+    else if ([Node.DOCUMENT_NODE, Node.DOCUMENT_FRAGMENT_NODE].includes(node.nodeType)) {
+      let child = node.firstChild;
+      while (child) {
+        const nextSibling = child.nextSibling;
+        await walkDOM(child);
         child = nextSibling;
       }
     }
@@ -540,7 +614,7 @@
       mutations.forEach((mutation) => {
         // New nodes added to the page
         if (mutation.type === "childList") {
-          mutation.addedNodes.forEach(walkDOM);
+          mutation.addedNodes.forEach(node => walkDOM(node));
         }
         // Text content changed
         else if (mutation.type === "characterData") {
@@ -559,6 +633,6 @@
 
   // Export for testing
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { transformText };
+    module.exports = { transformText, walkDOM };
   }
 })();
