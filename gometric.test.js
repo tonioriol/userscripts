@@ -1,8 +1,26 @@
-import { describe, it, expect } from 'vitest';
-import { transformText } from './gometric.user.js';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { walkDOM } from './gometric.user.js';
+import { JSDOM } from 'jsdom';
+
+let dom, document;
+
+beforeEach(() => {
+    dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
+    document = dom.window.document;
+    global.document = document;
+    global.Node = dom.window.Node;
+});
 
 describe('GoMetric', () => {
-    // Data-driven test cases for unit conversions
+    // Helper to create element and get result
+    const testConversion = async (html, expected) => {
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        await walkDOM(div);
+        return div.textContent;
+    };
+
+    // Data-driven test cases
     const testCases = [
         // Temperature
         { input: '32 F', expected: '[0 ℃]', category: 'Temperature' },
@@ -13,10 +31,13 @@ describe('GoMetric', () => {
         { input: '1 foot', expected: '[30.48 cm]', category: 'Distance' },
         { input: '1 yard', expected: '[91.44 cm]', category: 'Distance' },
         { input: '1 mile', expected: '[1.61 km]', category: 'Distance' },
+        { input: '1,000 feet', expected: '[304.8 m]', category: 'Distance (thousands)' },
         
         // Area
         { input: '1 acre', expected: '[4.05 km²]', category: 'Area' },
         { input: '100 sq ft', expected: '[9.29 m²]', category: 'Area' },
+        { input: '100 sqft', expected: '[9.29 m²]', category: 'Area (no space)' },
+        { input: '7,270 sqft', expected: '[675.4 m²]', category: 'Area (with comma)' },
         { input: '1 sq mi', expected: '[2.59 km²]', category: 'Area' },
         
         // Volume
@@ -33,6 +54,7 @@ describe('GoMetric', () => {
         { input: '1 oz', expected: '[28.35 g]', category: 'Weight' },
         { input: '1 lb', expected: '[453.59 g]', category: 'Weight' },
         { input: '10 lbs', expected: '[4.54 kg]', category: 'Weight' },
+        { input: '10,000 lbs', expected: '[4.54 Mg]', category: 'Weight (thousands)' },
         
         // Speed
         { input: '60 mph', expected: '[96.56 km/h]', category: 'Speed' },
@@ -52,46 +74,61 @@ describe('GoMetric', () => {
         { input: '100 lb-ft', expected: '[135.58 N⋅m]', category: 'Torque' },
         
         // Fuel Economy
-        { input: '30 mpg', expected: '[7.84 L/100km]', category: 'Fuel Economy' }
+        { input: '30 mpg', expected: '[7.84 L/100km]', category: 'Fuel Economy' },
+        
+        // Fractions
+        { input: '1/4 inch', expected: 'mm]', category: 'Fractions' },
+        { input: '1 1/4 inches', expected: '[3.18 cm]', category: 'Mixed fractions' },
+        
+        // Complex patterns
+        { input: '5 bds 5 ba 7,270 sqft', expected: '[675.4 m²]', category: 'Real estate listing' },
+        
+        // Currency (HOME_CURRENCY is EUR, formatted with locale separators)
+        { input: '$3,489,000', expected: /\$3,489,000 \[€[\d.,]+\]/, category: 'Currency (USD millions)' },
+        { input: '$1,234.56', expected: /\$1,234\.56 \[€[\d.,]+\]/, category: 'Currency (USD cents)' },
+        { input: '$5000', expected: /\$5000 \[€[\d.,]+\]/, category: 'Currency (plain)' },
+        
+        // HTML split patterns
+        { input: '<b>1,370</b> <abbr>sqft</abbr>', expected: '[127.28 m²]', category: 'HTML (number and unit split)' },
+        { input: '$750,000 <b>3</b> bds <b>2</b> ba <b>1,370</b> <abbr>sqft</abbr>', expected: '[127.28 m²]', category: 'HTML (real estate)' },
+        { input: '<b>6.87</b> acres lot', expected: '[27.8 km²]', category: 'HTML (acres split)' },
     ];
 
-    describe('Unit conversions', () => {
+    describe('All conversions via walkDOM', () => {
         testCases.forEach(({ input, expected, category }) => {
-            it(`converts ${input} correctly (${category})`, () => {
-                expect(transformText(input)).toContain(expected);
+            it(`converts ${input} correctly (${category})`, async () => {
+                const result = await testConversion(input, expected);
+                if (expected instanceof RegExp) {
+                    expect(result).toMatch(expected);
+                } else {
+                    expect(result).toContain(expected);
+                }
             });
         });
     });
 
-    describe('Fractional values', () => {
-        it('converts fractions like 1/4', () => {
-            expect(transformText('1/4 inch')).toContain('mm]');
-        });
-
-        it('converts mixed fractions like 1 1/4', () => {
-            expect(transformText('1 1/4 inches')).toContain('[3.18 cm]');
-        });
-    });
-
-    describe('Pattern matching', () => {
-        it('matches multiple units in text', () => {
-            const result = transformText('5 feet and 120 lbs');
+    describe('Edge cases', () => {
+        it('matches multiple units in text', async () => {
+            const result = await testConversion('5 feet and 120 lbs');
             expect(result).toContain('[1.52 m]');
             expect(result).toContain('[54.43 kg]');
         });
 
-        it('does not match already converted units', () => {
-            const result = transformText('5 miles [8.05 km]');
+        it('does not re-convert already converted units', async () => {
+            const result = await testConversion('5 miles [8.05 km]');
             expect(result.match(/\[/g)).toHaveLength(1);
         });
-    });
 
-    describe('Idempotency', () => {
-        it('does not convert already converted text', () => {
-            const text = '5 miles';
-            const firstPass = transformText(text);
-            const secondPass = transformText(firstPass);
-            expect(firstPass).toBe(secondPass);
+        it('does not convert already converted currency', async () => {
+            const result = await testConversion('$100 [€85]');
+            expect(result.match(/\[/g)).toHaveLength(1);
+        });
+
+        it('handles currency and area together', async () => {
+            const result = await testConversion('$750,000 with 1,370 sqft');
+            expect(result).toContain('$750,000');
+            expect(result).toContain('[€');
+            expect(result).toContain('[127.28 m²]');
         });
     });
 });
