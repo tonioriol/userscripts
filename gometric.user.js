@@ -461,17 +461,8 @@
 
   // Main transformation function (async - handles both currency and units)
   const transformText = async (text) => {
-    // Early exit if text is too short
-    if (!text || text.length < 2) {
-      return text;
-    }
-
-    // Skip if already converted (but allow if it's a partial conversion)
-    const hasBrackets = text.includes('[') && text.includes(']');
-    const bracketCount = (text.match(/\[/g) || []).length;
-    
-    // If it has many conversions already, skip to avoid reprocessing
-    if (hasBrackets && bracketCount > 3) {
+    // Early exit if text is too short or already has conversions
+    if (!text || text.length < 2 || (text.includes('[') && text.includes(']'))) {
       return text;
     }
 
@@ -552,14 +543,14 @@
     return node.parentElement; // Fallback to immediate parent
   };
 
-  // Track processed nodes with their values and detect reversion
-  const processedNodes = new WeakMap(); // node -> { original, converted, reverted: boolean }
+  // Track processed nodes to avoid reprocessing
+  const processedNodes = new WeakSet();
   const processedParents = new WeakSet();
   
   // Process a text node
   const processTextNode = async (node) => {
-    // Skip if invalid
-    if (!node || !node.nodeValue) {
+    // Skip if invalid or already processed
+    if (!node || !node.nodeValue || processedNodes.has(node)) {
       return;
     }
     
@@ -570,32 +561,8 @@
       return;
     }
     
-    // Check if we've processed this node before
-    const processInfo = processedNodes.get(node);
-    
-    if (processInfo) {
-      // If it was marked as reverted by site JS, don't try again
-      if (processInfo.reverted) {
-        return;
-      }
-      
-      // If the current value matches what we last converted, skip
-      if (node.nodeValue === processInfo.converted) {
-        return;
-      }
-      
-      // If current value matches the original (pre-conversion), site JS reverted it
-      if (node.nodeValue === processInfo.original) {
-        // Mark as reverted and don't try to convert again
-        processInfo.reverted = true;
-        return;
-      }
-      
-      // Value changed to something new - process it
-    }
-    
-    // Store the original value before conversion
-    const originalValue = node.nodeValue;
+    // Mark as processed
+    processedNodes.add(node);
     
     // If this node contains a unit, try parent context for HTML split patterns
     // BUT with strict performance limits
@@ -640,21 +607,11 @@
     const transformed = await transformText(node.nodeValue);
     if (transformed !== node.nodeValue) {
       node.nodeValue = transformed;
-      
-      // Store the conversion info
-      processedNodes.set(node, {
-        original: originalValue,
-        converted: node.nodeValue,
-        reverted: false
-      });
     }
   };
 
   // Elements to skip entirely
   const skipElements = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'SVG']);
-  
-  // Track processed elements to avoid re-walking
-  const processedElements = new WeakSet();
   
   // Walk through all DOM nodes recursively
   const walkDOM = async (node) => {
@@ -668,14 +625,6 @@
       if (skipElements.has(node.tagName)) {
         return;
       }
-      
-      // Skip if we've already walked this element's children
-      if (processedElements.has(node)) {
-        return;
-      }
-      
-      // Mark element as walked
-      processedElements.add(node);
       
       let child = node.firstChild;
       while (child) {
@@ -695,119 +644,70 @@
     }
   };
 
-  // Initialize the script when page is fully settled
+  // Initialize the script when page is fully loaded
   if (typeof document !== "undefined") {
-    const initScript = () => {
-      // Fetch rates on load
-      fetchRates();
+    // Fetch rates on load
+    fetchRates();
 
-      // Wait for page to settle before initial conversion
-      const runInitialConversions = () => {
-        if (document.body) {
-          walkDOM(document.body);
-        }
-      };
-
-      // Use multiple strategies to ensure page is settled
-      if (document.readyState === 'complete') {
-        // Page already loaded, wait a bit for dynamic JS
-        if (typeof requestIdleCallback !== 'undefined') {
-          requestIdleCallback(() => {
-            setTimeout(runInitialConversions, 500); // Extra 500ms for dynamic content
-          }, { timeout: 2000 });
-        } else {
-          setTimeout(runInitialConversions, 1000);
-        }
-      } else {
-        // Wait for full load
-        window.addEventListener('load', () => {
-          if (typeof requestIdleCallback !== 'undefined') {
-            requestIdleCallback(() => {
-              setTimeout(runInitialConversions, 500);
-            }, { timeout: 2000 });
-          } else {
-            setTimeout(runInitialConversions, 1000);
-          }
-        });
-      }
-
-      // Debounce mutation processing to prevent performance issues
-      let mutationTimeout = null;
-      let pendingMutations = [];
-      
-      const processPendingMutations = () => {
-        // Process in batches using requestIdleCallback if available
-        const batch = pendingMutations.splice(0, 50); // Process max 50 at a time
-        
-        batch.forEach((mutation) => {
-          // New nodes added to the page
-          if (mutation.type === "childList") {
-            mutation.addedNodes.forEach(node => {
-              // Skip comment nodes
-              if (node.nodeType !== Node.COMMENT_NODE) {
-                walkDOM(node);
-              }
-            });
-          }
-          // Text content changed
-          else if (mutation.type === "characterData") {
-            processTextNode(mutation.target);
-          }
-        });
-        
-        // Continue processing if more pending
-        if (pendingMutations.length > 0) {
-          if (typeof requestIdleCallback !== 'undefined') {
-            requestIdleCallback(() => processPendingMutations());
-          } else {
-            setTimeout(processPendingMutations, 16); // ~60fps
-          }
-        }
-      };
-
-      // Watch for dynamic content changes - but only start observing after initial conversion
-      const startObserver = () => {
-        const observer = new MutationObserver((mutations) => {
-          // Add to pending queue
-          pendingMutations.push(...mutations);
-          
-          // Debounce processing with longer delay to avoid fighting with site JS
-          if (mutationTimeout) {
-            clearTimeout(mutationTimeout);
-          }
-          
-          mutationTimeout = setTimeout(() => {
-            processPendingMutations();
-            mutationTimeout = null;
-          }, 300); // Wait 300ms before processing (was 100ms)
-        });
-
-        // Start observing the document
-        if (document.body) {
-          observer.observe(document.body, {
-            childList: true,
-            subtree: true,
-            // Removed characterData to reduce mutation volume
-          });
-        }
-      };
-
-      // Start observer after initial conversions
-      if (document.readyState === 'complete') {
-        setTimeout(startObserver, 2000); // Start observing 2s after load
-      } else {
-        window.addEventListener('load', () => {
-          setTimeout(startObserver, 2000);
-        });
+    // Run initial conversions after page fully loads
+    const runInitialConversions = () => {
+      if (document.body) {
+        // Wait 1 second after load for site JS to settle
+        setTimeout(() => walkDOM(document.body), 1000);
       }
     };
 
-    // Run initialization
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', initScript);
+    // Wait for page load
+    if (document.readyState === 'complete') {
+      runInitialConversions();
     } else {
-      initScript();
+      window.addEventListener('load', runInitialConversions);
     }
+
+    // Debounce mutation processing
+    let mutationTimeout = null;
+    let pendingMutations = [];
+    
+    const processPendingMutations = () => {
+      const batch = pendingMutations.splice(0, 50);
+      
+      batch.forEach((mutation) => {
+        if (mutation.type === "childList") {
+          mutation.addedNodes.forEach(node => {
+            if (node.nodeType !== Node.COMMENT_NODE) {
+              walkDOM(node);
+            }
+          });
+        }
+      });
+      
+      if (pendingMutations.length > 0) {
+        setTimeout(processPendingMutations, 16);
+      }
+    };
+
+    // Start observing after initial conversion
+    setTimeout(() => {
+      const observer = new MutationObserver((mutations) => {
+        pendingMutations.push(...mutations);
+        
+        if (mutationTimeout) {
+          clearTimeout(mutationTimeout);
+        }
+        
+        mutationTimeout = setTimeout(() => {
+          processPendingMutations();
+          mutationTimeout = null;
+        }, 300);
+      });
+
+      if (document.body) {
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+        });
+      }
+    }, 2000); // Start observing 2s after script runs
   }
 
   // Export for testing

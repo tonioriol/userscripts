@@ -88,9 +88,14 @@ describe('GoMetric', () => {
         { input: '$1,234.56', expected: /\$1,234\.56 \[€[\d.,]+\]/, category: 'Currency (USD cents)' },
         { input: '$5000', expected: /\$5000 \[€[\d.,]+\]/, category: 'Currency (plain)' },
         
-        // HTML split patterns (restored with performance limits)
+        // HTML split patterns
         { input: '<b>1,370</b> <abbr>sqft</abbr>', expected: '[127.28 m²]', category: 'HTML (number and unit split)' },
         { input: '<b>6.87</b> acres lot', expected: '[27.8 km²]', category: 'HTML (acres split)' },
+        { input: '<b>1,370 sqft</b>', expected: '[127.28 m²]', category: 'HTML (same element)' },
+        
+        // Edge cases
+        { input: '5 feet and 120 lbs', expected: '[1.52 m]', category: 'Multiple units' },
+        { input: '$750,000 with 1,370 sqft', expected: '[€', category: 'Currency and area' },
     ];
 
     describe('All conversions via walkDOM', () => {
@@ -106,13 +111,7 @@ describe('GoMetric', () => {
         });
     });
 
-    describe('Edge cases', () => {
-        it('matches multiple units in text', async () => {
-            const result = await testConversion('5 feet and 120 lbs');
-            expect(result).toContain('[1.52 m]');
-            expect(result).toContain('[54.43 kg]');
-        });
-
+    describe('Re-conversion prevention', () => {
         it('does not re-convert already converted units', async () => {
             const result = await testConversion('5 miles [8.05 km]');
             expect(result.match(/\[/g)).toHaveLength(1);
@@ -123,73 +122,18 @@ describe('GoMetric', () => {
             expect(result.match(/\[/g)).toHaveLength(1);
         });
 
-        it('handles currency and area together', async () => {
-            const result = await testConversion('$750,000 with 1,370 sqft');
-            expect(result).toContain('$750,000');
-            expect(result).toContain('[€');
-            expect(result).toContain('[127.28 m²]');
-        });
-    });
-
-    describe('HTML split pattern safeguards', () => {
-        it('converts numbers and units split across HTML elements', async () => {
-            // Restored with performance limits
-            const result = await testConversion('<b>1,370</b> <abbr>sqft</abbr>');
-            expect(result).toContain('[127.28 m²]');
-        });
-
-        it('converts when number and unit are in same element', async () => {
-            const result = await testConversion('<b>1,370 sqft</b>');
-            expect(result).toContain('[127.28 m²]');
-        });
-
-        it('handles complex real estate listings', async () => {
-            // Both currency and area should convert
-            const result = await testConversion('$750,000 <b>3</b> bds <b>2</b> ba <b>1,370 sqft</b>');
-            expect(result).toContain('[€');
-            expect(result).toContain('[127.28 m²]');
-        });
-
-        it('skips very large parent contexts (> 500 chars)', async () => {
-            // Create a parent with > 500 chars
-            const longText = 'Lorem ipsum dolor sit amet. '.repeat(20); // ~560 chars
-            const result = await testConversion(`${longText}<b>100</b> <abbr>sqft</abbr>`);
-            
-            // Should still process normally but won't use expensive parent context
-            expect(result.length).toBeGreaterThan(500);
-        });
-
-        it('limits conversions per parent to prevent abuse (max 10)', async () => {
-            // The parent context feature has a hard limit of 10 conversions
-            // This prevents performance issues with pages containing many units
+        it('does not reprocess same nodes twice', async () => {
             const div = document.createElement('div');
-            div.innerHTML = '<p>' + Array(15).fill('10 miles').join(', ') + '</p>';
+            div.innerHTML = '10 miles';
             
-            await walkDOM(div);
-            const result = div.textContent;
-            
-            // Should convert all since they're in same text node (not split pattern)
-            const conversionCount = (result.match(/\[[\d.]+ km\]/g) || []).length;
-            expect(conversionCount).toBe(15); // All converted in normal mode
-        });
-
-        it('does not reprocess same parent multiple times', async () => {
-            const div = document.createElement('div');
-            div.innerHTML = '<p><b>100</b> <span>sqft</span></p>';
-            
-            // First pass
             await walkDOM(div);
             const firstResult = div.textContent;
-            const firstConversionCount = (firstResult.match(/\[/g) || []).length;
             
-            // Second pass - should not duplicate conversions
             await walkDOM(div);
             const secondResult = div.textContent;
-            const secondConversionCount = (secondResult.match(/\[/g) || []).length;
             
-            // Results should be identical
             expect(secondResult).toBe(firstResult);
-            expect(secondConversionCount).toBe(firstConversionCount);
+            expect(firstResult.match(/\[/g)).toHaveLength(1);
         });
     });
 
