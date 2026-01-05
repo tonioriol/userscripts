@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GoMetric
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.3
+// @version      0.1.5
 // @description  Automatically converts imperial units to metric units and currencies
 // @author       Toni Oriol
 // @match        *://*/*
@@ -461,9 +461,26 @@
 
   // Main transformation function (async - handles both currency and units)
   const transformText = async (text) => {
+    // Early exit if text is too short
+    if (!text || text.length < 2) {
+      return text;
+    }
+
+    // Skip if already converted (but allow if it's a partial conversion)
+    const hasBrackets = text.includes('[') && text.includes(']');
+    const bracketCount = (text.match(/\[/g) || []).length;
+    
+    // If it has many conversions already, skip to avoid reprocessing
+    if (hasBrackets && bracketCount > 3) {
+      return text;
+    }
+
     // Apply currency conversion first
     text = await transformCurrency(text);
 
+    // Collect all matches first, then apply replacements in reverse order
+    const replacements = [];
+    
     // Apply each unit conversion rule to the text
     conversions.forEach((rule) => {
       rule.regex.lastIndex = 0;
@@ -491,24 +508,30 @@
         // Step 5: Build the replacement text
         const replacement = `${originalText} [${roundedValue} ${scaled.unit}]`;
 
-        // Step 6: Replace in the original text
-        const before = text.slice(0, matchPosition);
-        const after = text.slice(matchPosition + originalText.length);
-        text = before + replacement + after;
-
-        // Step 7: Adjust regex position for next match
-        rule.regex.lastIndex += replacement.length - originalText.length;
+        // Collect replacement instead of applying immediately
+        replacements.push({
+          index: matchPosition,
+          length: originalText.length,
+          replacement
+        });
       }
     });
+
+    // Apply all replacements in reverse order to maintain indices
+    replacements.sort((a, b) => b.index - a.index);
+    for (const {index, length, replacement} of replacements) {
+      text = text.slice(0, index) + replacement + text.slice(index + length);
+    }
 
     return text;
   };
 
+  // Cache the unit check regex for performance
+  const unitPatterns = conversions.map(rule => rule.pattern).join('|');
+  const unitRegex = new RegExp(`\\b(${unitPatterns})\\b`, 'i');
+  
   // Check if text contains any unit keyword (without requiring numbers)
   const containsUnit = (text) => {
-    // Extract just the unit patterns (without number requirements)
-    const unitPatterns = conversions.map(rule => rule.pattern).join('|');
-    const unitRegex = new RegExp(`\\b(${unitPatterns})\\b`, 'i');
     return unitRegex.test(text);
   };
 
@@ -529,52 +552,110 @@
     return node.parentElement; // Fallback to immediate parent
   };
 
+  // Track processed nodes with their values and detect reversion
+  const processedNodes = new WeakMap(); // node -> { original, converted, reverted: boolean }
+  const processedParents = new WeakSet();
+  
   // Process a text node
   const processTextNode = async (node) => {
-    const text = node.nodeValue;
+    // Skip if invalid
+    if (!node || !node.nodeValue) {
+      return;
+    }
     
-    // If this node contains a unit, try parent context for split patterns
-    if (containsUnit(text) && node.parentElement) {
-      const contextParent = findContextParent(node);
-      if (!contextParent) {
-        // Normal processing if no context parent
-        const transformed = await transformText(text);
-        if (transformed !== text) {
-          node.nodeValue = transformed;
-        }
+    const text = node.nodeValue.trim();
+    
+    // Skip empty or very short text
+    if (text.length < 2) {
+      return;
+    }
+    
+    // Check if we've processed this node before
+    const processInfo = processedNodes.get(node);
+    
+    if (processInfo) {
+      // If it was marked as reverted by site JS, don't try again
+      if (processInfo.reverted) {
         return;
       }
       
-      const parentText = contextParent.textContent;
-      const transformedParent = await transformText(parentText);
+      // If the current value matches what we last converted, skip
+      if (node.nodeValue === processInfo.converted) {
+        return;
+      }
       
-      // Only proceed if a conversion was actually added
-      if (parentText !== transformedParent) {
-        // Extract NEW conversions (those not already in parent)
-        const existingConversions = parentText.match(/\[[^\]]+\]/g) || [];
-        const allConversions = transformedParent.match(/\[[^\]]+\]/g) || [];
+      // If current value matches the original (pre-conversion), site JS reverted it
+      if (node.nodeValue === processInfo.original) {
+        // Mark as reverted and don't try to convert again
+        processInfo.reverted = true;
+        return;
+      }
+      
+      // Value changed to something new - process it
+    }
+    
+    // Store the original value before conversion
+    const originalValue = node.nodeValue;
+    
+    // If this node contains a unit, try parent context for HTML split patterns
+    // BUT with strict performance limits
+    if (containsUnit(text) && node.parentElement) {
+      const contextParent = findContextParent(node);
+      
+      // Only try parent context if:
+      // 1. We found a valid parent
+      // 2. Parent hasn't been processed yet
+      // 3. Parent text is reasonably sized (< 500 chars to prevent hangs)
+      if (contextParent && !processedParents.has(contextParent)) {
+        const parentText = contextParent.textContent;
         
-        // Find conversions that are new
-        const newConversions = allConversions.slice(existingConversions.length);
-        
-        if (newConversions.length > 0) {
-          // Insert new conversions after this text node
-          for (const conversion of newConversions) {
-            const conversionNode = document.createTextNode(` ${conversion}`);
-            node.parentNode.insertBefore(conversionNode, node.nextSibling);
+        if (parentText.length < 500 && parentText.length > text.length) {
+          processedParents.add(contextParent); // Mark BEFORE processing
+          
+          const transformedParent = await transformText(parentText);
+          
+          // Only proceed if a conversion was actually added
+          if (parentText !== transformedParent) {
+            // Extract NEW conversions (those not already in parent)
+            const existingConversions = parentText.match(/\[[^\]]+\]/g) || [];
+            const allConversions = transformedParent.match(/\[[^\]]+\]/g) || [];
+            
+            // Find conversions that are new
+            const newConversions = allConversions.slice(existingConversions.length);
+            
+            if (newConversions.length > 0 && newConversions.length < 10) { // Max 10 conversions per parent
+              // Insert new conversions after this text node
+              for (const conversion of newConversions) {
+                const conversionNode = document.createTextNode(` ${conversion}`);
+                node.parentNode.insertBefore(conversionNode, node.nextSibling);
+              }
+              return;
+            }
           }
-          return;
         }
       }
     }
     
-    // Normal text processing
-    const transformed = await transformText(text);
-    if (transformed !== text) {
+    // Normal text processing fallback
+    const transformed = await transformText(node.nodeValue);
+    if (transformed !== node.nodeValue) {
       node.nodeValue = transformed;
+      
+      // Store the conversion info
+      processedNodes.set(node, {
+        original: originalValue,
+        converted: node.nodeValue,
+        reverted: false
+      });
     }
   };
 
+  // Elements to skip entirely
+  const skipElements = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'SVG']);
+  
+  // Track processed elements to avoid re-walking
+  const processedElements = new WeakSet();
+  
   // Walk through all DOM nodes recursively
   const walkDOM = async (node) => {
     // If it's a text node, process it
@@ -583,6 +664,19 @@
     }
     // If it's an element, walk through its children
     else if (node.nodeType === Node.ELEMENT_NODE) {
+      // Skip certain elements entirely
+      if (skipElements.has(node.tagName)) {
+        return;
+      }
+      
+      // Skip if we've already walked this element's children
+      if (processedElements.has(node)) {
+        return;
+      }
+      
+      // Mark element as walked
+      processedElements.add(node);
+      
       let child = node.firstChild;
       while (child) {
         const nextSibling = child.nextSibling;
@@ -601,34 +695,119 @@
     }
   };
 
-  // Initialize the script when DOM is ready
-  if (typeof document !== "undefined" && document.body) {
-    // Fetch rates on load
-    fetchRates();
+  // Initialize the script when page is fully settled
+  if (typeof document !== "undefined") {
+    const initScript = () => {
+      // Fetch rates on load
+      fetchRates();
 
-    // Process all existing content
-    walkDOM(document.body);
-
-    // Watch for dynamic content changes
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        // New nodes added to the page
-        if (mutation.type === "childList") {
-          mutation.addedNodes.forEach(node => walkDOM(node));
+      // Wait for page to settle before initial conversion
+      const runInitialConversions = () => {
+        if (document.body) {
+          walkDOM(document.body);
         }
-        // Text content changed
-        else if (mutation.type === "characterData") {
-          processTextNode(mutation.target);
-        }
-      });
-    });
+      };
 
-    // Start observing the document
-    observer.observe(document, {
-      childList: true,
-      characterData: true,
-      subtree: true,
-    });
+      // Use multiple strategies to ensure page is settled
+      if (document.readyState === 'complete') {
+        // Page already loaded, wait a bit for dynamic JS
+        if (typeof requestIdleCallback !== 'undefined') {
+          requestIdleCallback(() => {
+            setTimeout(runInitialConversions, 500); // Extra 500ms for dynamic content
+          }, { timeout: 2000 });
+        } else {
+          setTimeout(runInitialConversions, 1000);
+        }
+      } else {
+        // Wait for full load
+        window.addEventListener('load', () => {
+          if (typeof requestIdleCallback !== 'undefined') {
+            requestIdleCallback(() => {
+              setTimeout(runInitialConversions, 500);
+            }, { timeout: 2000 });
+          } else {
+            setTimeout(runInitialConversions, 1000);
+          }
+        });
+      }
+
+      // Debounce mutation processing to prevent performance issues
+      let mutationTimeout = null;
+      let pendingMutations = [];
+      
+      const processPendingMutations = () => {
+        // Process in batches using requestIdleCallback if available
+        const batch = pendingMutations.splice(0, 50); // Process max 50 at a time
+        
+        batch.forEach((mutation) => {
+          // New nodes added to the page
+          if (mutation.type === "childList") {
+            mutation.addedNodes.forEach(node => {
+              // Skip comment nodes
+              if (node.nodeType !== Node.COMMENT_NODE) {
+                walkDOM(node);
+              }
+            });
+          }
+          // Text content changed
+          else if (mutation.type === "characterData") {
+            processTextNode(mutation.target);
+          }
+        });
+        
+        // Continue processing if more pending
+        if (pendingMutations.length > 0) {
+          if (typeof requestIdleCallback !== 'undefined') {
+            requestIdleCallback(() => processPendingMutations());
+          } else {
+            setTimeout(processPendingMutations, 16); // ~60fps
+          }
+        }
+      };
+
+      // Watch for dynamic content changes - but only start observing after initial conversion
+      const startObserver = () => {
+        const observer = new MutationObserver((mutations) => {
+          // Add to pending queue
+          pendingMutations.push(...mutations);
+          
+          // Debounce processing with longer delay to avoid fighting with site JS
+          if (mutationTimeout) {
+            clearTimeout(mutationTimeout);
+          }
+          
+          mutationTimeout = setTimeout(() => {
+            processPendingMutations();
+            mutationTimeout = null;
+          }, 300); // Wait 300ms before processing (was 100ms)
+        });
+
+        // Start observing the document
+        if (document.body) {
+          observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            // Removed characterData to reduce mutation volume
+          });
+        }
+      };
+
+      // Start observer after initial conversions
+      if (document.readyState === 'complete') {
+        setTimeout(startObserver, 2000); // Start observing 2s after load
+      } else {
+        window.addEventListener('load', () => {
+          setTimeout(startObserver, 2000);
+        });
+      }
+    };
+
+    // Run initialization
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initScript);
+    } else {
+      initScript();
+    }
   }
 
   // Export for testing
