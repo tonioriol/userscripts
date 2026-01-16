@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GoMetric
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.5
+// @version      0.1.6
 // @description  Automatically converts imperial units to metric units and currencies
 // @author       Toni Oriol
 // @match        *://*/*
@@ -21,21 +21,41 @@
 
   let exchangeRates = null;
 
-  // Detect decimal separator from browser locale
-  const decimalSeparator = (1.1).toLocaleString().substring(1, 2);
-
-  // Currency symbols mapping
-  const currencySymbols = {
-    $: "USD",
-    "€": "EUR",
-    "£": "GBP",
-    "¥": "JPY",
-    "₹": "INR",
-    "₽": "RUB",
-    "₩": "KRW",
-    "₪": "ILS",
-    "₺": "TRY",
-  };
+  // Unified currency configuration: each entry has code and optional symbol
+  const currencies = [
+    { code: 'USD', symbol: '$' },
+    { code: 'EUR', symbol: '€' },
+    { code: 'GBP', symbol: '£' },
+    { code: 'JPY', symbol: '¥' },
+    { code: 'CNY', symbol: '¥' },
+    { code: 'INR', symbol: '₹' },
+    { code: 'RUB', symbol: '₽' },
+    { code: 'KRW', symbol: '₩' },
+    { code: 'ILS', symbol: '₪' },
+    { code: 'TRY', symbol: '₺' },
+    { code: 'THB', symbol: '฿' },
+    { code: 'PHP', symbol: '₱' },
+    { code: 'VND', symbol: '₫' },
+    { code: 'PLN', symbol: 'zł' },
+    { code: 'UAH', symbol: '₴' },
+    { code: 'NGN', symbol: '₦' },
+    { code: 'BRL', symbol: 'R$' },
+    { code: 'ZAR', symbol: 'R' },
+    { code: 'CHF' }, { code: 'CAD' }, { code: 'AUD' }, { code: 'NZD' },
+    { code: 'HKD' }, { code: 'SGD' }, { code: 'SEK' }, { code: 'NOK' },
+    { code: 'DKK' }, { code: 'MXN' }, { code: 'CZK' }, { code: 'HUF' },
+    { code: 'AED' }, { code: 'SAR' }, { code: 'MYR' }, { code: 'IDR' },
+    { code: 'TWD' }, { code: 'CLP' }, { code: 'COP' }, { code: 'PEN' },
+    { code: 'ARS' }, { code: 'EGP' }, { code: 'PKR' }, { code: 'BDT' },
+    { code: 'RON' }, { code: 'BGN' }, { code: 'HRK' }, { code: 'ISK' }
+  ];
+  // Build lookup maps and regex patterns from unified config
+  const symbolToCode = Object.fromEntries(currencies.filter(c => c.symbol).map(c => [c.symbol, c.code]));
+  const codeToSymbol = Object.fromEntries(currencies.filter(c => c.symbol).map(c => [c.code.toLowerCase(), c.symbol]));
+  const codesPattern = currencies.map(c => c.code).join('|');
+  // Escape special regex chars in symbols for pattern matching
+  const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const symbolsPattern = currencies.filter(c => c.symbol).map(c => escapeRegex(c.symbol)).join('|');
 
   // Fetch exchange rates
   const fetchRates = async () => {
@@ -53,11 +73,8 @@
     }
   };
 
-  // Get symbol for currency
-  const getSymbol = (code) => {
-    const symbols = { usd: "$", eur: "€", gbp: "£", jpy: "¥", cny: "¥" };
-    return symbols[code.toLowerCase()] || code.toUpperCase();
-  };
+  // Get symbol for currency (uses unified config)
+  const getSymbol = (code) => codeToSymbol[code.toLowerCase()] || code.toUpperCase();
 
   // Scaling modes with their allowed metric prefixes
   const scales = {
@@ -387,51 +404,56 @@
     return { value, unit };
   };
 
+  // Parse currency amount with smart decimal detection
+  const parseCurrencyAmount = (numStr) => {
+    if (!numStr) return NaN;
+    const lastDot = numStr.lastIndexOf('.');
+    const lastComma = numStr.lastIndexOf(',');
+    const lastSep = Math.max(lastDot, lastComma);
+    const digitsAfter = lastSep >= 0 ? numStr.length - lastSep - 1 : 0;
+
+    // Smart parsing: last separator with 2 digits after = decimal, otherwise = thousands
+    if (digitsAfter === 2 && lastDot > lastComma) {
+      return parseFloat(numStr.replace(/,/g, ''));  // $1,234.56
+    } else if (digitsAfter === 2 && lastComma > lastDot) {
+      return parseFloat(numStr.replace(/\./g, '').replace(',', '.'));  // €1.234,56
+    }
+    return parseFloat(numStr.replace(/[,.]/g, ''));  // $1,234,567 or €1.234.567
+  };
+
   // Transform currency
   const transformCurrency = async (text) => {
     const rates = await fetchRates();
     if (!rates) return text;
 
-    // Match currency patterns: £583.80, $99.99, 50 USD, $3,489,000, €1.234.567,89
-    const regex =
-      /([£$€¥₹₽₩₪₺])\s*([0-9,.]+)|([0-9,.]+)\s*(USD|EUR|GBP|JPY|CNY)/gi;
+    // Match: SYMBOL amount | amount CODE | CODE amount
+    const regex = new RegExp(
+      `(${symbolsPattern})\\s*([0-9,.]+)|([0-9,.]+)\\s*(${codesPattern})|(${codesPattern})\\s+([0-9,.]+)`,
+      'gi'
+    );
     const matches = [];
     let match;
 
     while ((match = regex.exec(text)) !== null) {
-      if (
-        text[match.index + match[0].length] === " " &&
-        text[match.index + match[0].length + 1] === "["
-      )
-        continue;
+      // Skip if already converted (followed by " [")
+      const afterMatch = text.slice(match.index + match[0].length, match.index + match[0].length + 2);
+      if (afterMatch === ' [') continue;
 
+      // Extract amount and currency from the appropriate capture groups
+      // Groups: 1=symbol, 2=amount after symbol, 3=amount before code, 4=code after, 5=code before, 6=amount after code
       const symbol = match[1];
-      const amountAfter = match[2];
-      const amountBefore = match[3];
-      const code = match[4];
+      const amountAfterSymbol = match[2];
+      const amountBeforeCode = match[3];
+      const codeAfter = match[4];
+      const codeBefore = match[5];
+      const amountAfterCode = match[6];
 
-      // Smart parsing: last separator with 2 digits after = decimal, otherwise = thousands
-      const numStr = amountAfter || amountBefore;
-      const lastDot = numStr.lastIndexOf('.');
-      const lastComma = numStr.lastIndexOf(',');
-      const lastSep = Math.max(lastDot, lastComma);
-      const digitsAfter = lastSep >= 0 ? numStr.length - lastSep - 1 : 0;
-      
-      const amount = digitsAfter === 2 && lastDot > lastComma
-        ? parseFloat(numStr.replace(/,/g, ''))  // $1,234.56
-        : digitsAfter === 2 && lastComma > lastDot
-        ? parseFloat(numStr.replace(/\./g, '').replace(',', '.'))  // €1.234,56
-        : parseFloat(numStr.replace(/[,.]/g, ''));  // $1,234,567 or €1.234.567
-      
-      const currency = currencySymbols[symbol] || code;
+      const numStr = amountAfterSymbol || amountBeforeCode || amountAfterCode;
+      const amount = parseCurrencyAmount(numStr);
+      const currency = symbolToCode[symbol] || codeAfter || codeBefore;
 
-      if (currency && currency.toLowerCase() !== HOME_CURRENCY.toLowerCase()) {
-        matches.push({
-          original: match[0],
-          index: match.index,
-          amount,
-          currency,
-        });
+      if (currency && currency.toUpperCase() !== HOME_CURRENCY.toUpperCase() && !isNaN(amount)) {
+        matches.push({ original: match[0], index: match.index, amount, currency });
       }
     }
 
@@ -443,16 +465,11 @@
       if (rate) {
         const converted = amount / rate;
         const sym = getSymbol(HOME_CURRENCY);
-        // Format with locale-aware thousands and decimal separators
         const formatted = converted.toLocaleString(undefined, {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2
         });
-        const replacement = `${original} [${sym}${formatted}]`;
-        text =
-          text.slice(0, index) +
-          replacement +
-          text.slice(index + original.length);
+        text = text.slice(0, index) + `${original} [${sym}${formatted}]` + text.slice(index + original.length);
       }
     }
 
@@ -471,7 +488,7 @@
 
     // Collect all matches first, then apply replacements in reverse order
     const replacements = [];
-    
+
     // Apply each unit conversion rule to the text
     conversions.forEach((rule) => {
       rule.regex.lastIndex = 0;
@@ -520,7 +537,7 @@
   // Cache the unit check regex for performance
   const unitPatterns = conversions.map(rule => rule.pattern).join('|');
   const unitRegex = new RegExp(`\\b(${unitPatterns})\\b`, 'i');
-  
+
   // Check if text contains any unit keyword (without requiring numbers)
   const containsUnit = (text) => {
     return unitRegex.test(text);
@@ -530,7 +547,7 @@
   const findContextParent = (node) => {
     const containerTags = ['li', 'td', 'th', 'div', 'p', 'span'];
     let parent = node.parentElement;
-    
+
     // Go up to 3 levels looking for a container element
     for (let i = 0; i < 3 && parent; i++) {
       const tag = parent.tagName?.toLowerCase();
@@ -539,57 +556,57 @@
       }
       parent = parent.parentElement;
     }
-    
+
     return node.parentElement; // Fallback to immediate parent
   };
 
   // Track processed nodes to avoid reprocessing
   const processedNodes = new WeakSet();
   const processedParents = new WeakSet();
-  
+
   // Process a text node
   const processTextNode = async (node) => {
     // Skip if invalid or already processed
     if (!node || !node.nodeValue || processedNodes.has(node)) {
       return;
     }
-    
+
     const text = node.nodeValue.trim();
-    
+
     // Skip empty or very short text
     if (text.length < 2) {
       return;
     }
-    
+
     // Mark as processed
     processedNodes.add(node);
-    
+
     // If this node contains a unit, try parent context for HTML split patterns
     // BUT with strict performance limits
     if (containsUnit(text) && node.parentElement) {
       const contextParent = findContextParent(node);
-      
+
       // Only try parent context if:
       // 1. We found a valid parent
       // 2. Parent hasn't been processed yet
       // 3. Parent text is reasonably sized (< 500 chars to prevent hangs)
       if (contextParent && !processedParents.has(contextParent)) {
         const parentText = contextParent.textContent;
-        
+
         if (parentText.length < 500 && parentText.length > text.length) {
           processedParents.add(contextParent); // Mark BEFORE processing
-          
+
           const transformedParent = await transformText(parentText);
-          
+
           // Only proceed if a conversion was actually added
           if (parentText !== transformedParent) {
             // Extract NEW conversions (those not already in parent)
             const existingConversions = parentText.match(/\[[^\]]+\]/g) || [];
             const allConversions = transformedParent.match(/\[[^\]]+\]/g) || [];
-            
+
             // Find conversions that are new
             const newConversions = allConversions.slice(existingConversions.length);
-            
+
             if (newConversions.length > 0 && newConversions.length < 10) { // Max 10 conversions per parent
               // Insert new conversions after this text node
               for (const conversion of newConversions) {
@@ -602,7 +619,7 @@
         }
       }
     }
-    
+
     // Normal text processing fallback
     const transformed = await transformText(node.nodeValue);
     if (transformed !== node.nodeValue) {
@@ -612,7 +629,7 @@
 
   // Elements to skip entirely
   const skipElements = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'SVG']);
-  
+
   // Walk through all DOM nodes recursively
   const walkDOM = async (node) => {
     // If it's a text node, process it
@@ -625,7 +642,7 @@
       if (skipElements.has(node.tagName)) {
         return;
       }
-      
+
       let child = node.firstChild;
       while (child) {
         const nextSibling = child.nextSibling;
@@ -667,10 +684,10 @@
     // Debounce mutation processing
     let mutationTimeout = null;
     let pendingMutations = [];
-    
+
     const processPendingMutations = () => {
       const batch = pendingMutations.splice(0, 50);
-      
+
       batch.forEach((mutation) => {
         if (mutation.type === "childList") {
           mutation.addedNodes.forEach(node => {
@@ -680,7 +697,7 @@
           });
         }
       });
-      
+
       if (pendingMutations.length > 0) {
         setTimeout(processPendingMutations, 16);
       }
@@ -690,11 +707,11 @@
     setTimeout(() => {
       const observer = new MutationObserver((mutations) => {
         pendingMutations.push(...mutations);
-        
+
         if (mutationTimeout) {
           clearTimeout(mutationTimeout);
         }
-        
+
         mutationTimeout = setTimeout(() => {
           processPendingMutations();
           mutationTimeout = null;
