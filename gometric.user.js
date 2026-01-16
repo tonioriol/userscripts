@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GoMetric
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.6
+// @version      0.1.7
 // @description  Automatically converts imperial units to metric units and currencies
 // @author       Toni Oriol
 // @match        *://*/*
@@ -426,9 +426,10 @@
     const rates = await fetchRates();
     if (!rates) return text;
 
-    // Match: SYMBOL amount | amount CODE | CODE amount
+    // Match: SYMBOL amount | amount CODE | CODE amount (requires at least one digit)
+    const amountPattern = '[0-9][0-9,.]*';
     const regex = new RegExp(
-      `(${symbolsPattern})\\s*([0-9,.]+)|([0-9,.]+)\\s*(${codesPattern})|(${codesPattern})\\s+([0-9,.]+)`,
+      `(${symbolsPattern})\\s*(${amountPattern})|(${amountPattern})\\s*(${codesPattern})|(${codesPattern})\\s+(${amountPattern})`,
       'gi'
     );
     const matches = [];
