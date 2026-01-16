@@ -89,7 +89,11 @@ describe('GoMetric', () => {
         { input: '$5000', expected: /\$5000 \[€[\d.,]+\]/, category: 'Currency (plain)' },
         { input: 'DKK 724,10', expected: /DKK 724,10 \[€[\d.,]+\]/, category: 'Currency (code before amount, European format)' },
         { input: '100 SEK', expected: /100 SEK \[€[\d.,]+\]/, category: 'Currency (code after amount)' },
-        { input: '23.500M$,', expected: /23\.500M\$,/, category: 'Currency (no NaN for suffix M$)' },
+        { input: '23.500M$,', expected: /23\.500M\$ \[€[\d.,]+\]/, category: 'Currency (M$ millions)' },
+        { input: '84.000M$', expected: /84\.000M\$ \[€[\d.,]+\]/, category: 'Currency (USD millions with dots)' },
+        { input: '323.000M SEK', expected: /323\.000M SEK \[€[\d.,]+\]/, category: 'Currency (SEK millions with dots)' },
+        { input: '$500M', expected: /\$500M \[€[\d.,]+\]/, category: 'Currency (USD M suffix)' },
+        { input: '1.5B USD', expected: /1\.5B USD \[€[\d.,]+\]/, category: 'Currency (USD billions)' },
 
         // HTML split patterns
         { input: '<b>1,370</b> <abbr>sqft</abbr>', expected: '[127.28 m²]', category: 'HTML (number and unit split)' },

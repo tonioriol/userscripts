@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GoMetric
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.7
+// @version      0.1.8
 // @description  Automatically converts imperial units to metric units and currencies
 // @author       Toni Oriol
 // @match        *://*/*
@@ -404,32 +404,66 @@
     return { value, unit };
   };
 
-  // Parse currency amount with smart decimal detection
+  // Metric multipliers for currency amounts (M = millions, B = billions, etc.)
+  const currencyMultipliers = {
+    'k': 1e3, 'K': 1e3,
+    'M': 1e6, 'm': 1e6,  // m is ambiguous but commonly means millions in finance
+    'B': 1e9, 'bn': 1e9, 'Bn': 1e9,
+    'T': 1e12, 'tn': 1e12, 'Tn': 1e12
+  };
+
+  // Parse currency amount with smart decimal detection and metric multipliers
   const parseCurrencyAmount = (numStr) => {
     if (!numStr) return NaN;
+
+    // Check for metric multiplier suffix (M, B, k, etc.)
+    let multiplier = 1;
+    const multiplierMatch = numStr.match(/([kKmMbBtT]|[bBtT]n)$/);
+    if (multiplierMatch) {
+      multiplier = currencyMultipliers[multiplierMatch[1]] || 1;
+      numStr = numStr.slice(0, -multiplierMatch[1].length);
+    }
+
     const lastDot = numStr.lastIndexOf('.');
     const lastComma = numStr.lastIndexOf(',');
     const lastSep = Math.max(lastDot, lastComma);
     const digitsAfter = lastSep >= 0 ? numStr.length - lastSep - 1 : 0;
 
+    let baseValue;
     // Smart parsing: last separator with 2 digits after = decimal, otherwise = thousands
     if (digitsAfter === 2 && lastDot > lastComma) {
-      return parseFloat(numStr.replace(/,/g, ''));  // $1,234.56
+      baseValue = parseFloat(numStr.replace(/,/g, ''));  // $1,234.56
     } else if (digitsAfter === 2 && lastComma > lastDot) {
-      return parseFloat(numStr.replace(/\./g, '').replace(',', '.'));  // €1.234,56
+      baseValue = parseFloat(numStr.replace(/\./g, '').replace(',', '.'));  // €1.234,56
+    } else {
+      // For multiplied amounts like "84.000M", treat . as thousands separator
+      // unless it's clearly a decimal (single digit after)
+      if (multiplier > 1 && lastDot >= 0 && digitsAfter === 3) {
+        baseValue = parseFloat(numStr.replace(/\./g, ''));  // 84.000M -> 84000
+      } else {
+        baseValue = parseFloat(numStr.replace(/[,.]/g, ''));  // $1,234,567 or €1.234.567
+      }
     }
-    return parseFloat(numStr.replace(/[,.]/g, ''));  // $1,234,567 or €1.234.567
+
+    return baseValue * multiplier;
   };
+
+  // Resolve currency indicator (symbol or code) to currency code
+  const resolveCurrency = (indicator) => symbolToCode[indicator] || indicator?.toUpperCase();
 
   // Transform currency
   const transformCurrency = async (text) => {
     const rates = await fetchRates();
     if (!rates) return text;
 
-    // Match: SYMBOL amount | amount CODE | CODE amount (requires at least one digit)
-    const amountPattern = '[0-9][0-9,.]*';
+    // Combined pattern: any currency indicator (symbol or code)
+    const currencyPattern = `${symbolsPattern}|${codesPattern}`;
+    const amountPattern = '[0-9][0-9,.]*(?:[kKmMbBtT]|[bBtT]n)?';
+
+    // Simple regex: (indicator)(amount) OR (amount)(indicator)
+    // Groups: 1=indicator before, 2=amount after, 3=amount before, 4=indicator after
     const regex = new RegExp(
-      `(${symbolsPattern})\\s*(${amountPattern})|(${amountPattern})\\s*(${codesPattern})|(${codesPattern})\\s+(${amountPattern})`,
+      `(${currencyPattern})\\s*(${amountPattern})|(${amountPattern})\\s*(${currencyPattern})`,
       'gi'
     );
     const matches = [];
@@ -440,20 +474,13 @@
       const afterMatch = text.slice(match.index + match[0].length, match.index + match[0].length + 2);
       if (afterMatch === ' [') continue;
 
-      // Extract amount and currency from the appropriate capture groups
-      // Groups: 1=symbol, 2=amount after symbol, 3=amount before code, 4=code after, 5=code before, 6=amount after code
-      const symbol = match[1];
-      const amountAfterSymbol = match[2];
-      const amountBeforeCode = match[3];
-      const codeAfter = match[4];
-      const codeBefore = match[5];
-      const amountAfterCode = match[6];
-
-      const numStr = amountAfterSymbol || amountBeforeCode || amountAfterCode;
+      // Extract from either format: indicator-first or amount-first
+      const numStr = match[2] || match[3];
+      const indicator = match[1] || match[4];
+      const currency = resolveCurrency(indicator);
       const amount = parseCurrencyAmount(numStr);
-      const currency = symbolToCode[symbol] || codeAfter || codeBefore;
 
-      if (currency && currency.toUpperCase() !== HOME_CURRENCY.toUpperCase() && !isNaN(amount)) {
+      if (currency && currency !== HOME_CURRENCY && !isNaN(amount)) {
         matches.push({ original: match[0], index: match.index, amount, currency });
       }
     }
