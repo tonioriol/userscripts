@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GoMetric
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.8
+  // @version      0.1.9
 // @description  Automatically converts imperial units to metric units and currencies
 // @author       Toni Oriol
 // @match        *://*/*
@@ -457,13 +457,18 @@
     if (!rates) return text;
 
     // Combined pattern: any currency indicator (symbol or code)
-    const currencyPattern = `${symbolsPattern}|${codesPattern}`;
+    const currencyIndicatorPattern = `${symbolsPattern}|${codesPattern}`;
     const amountPattern = '[0-9][0-9,.]*(?:[kKmMbBtT]|[bBtT]n)?';
 
     // Simple regex: (indicator)(amount) OR (amount)(indicator)
-    // Groups: 1=indicator before, 2=amount after, 3=amount before, 4=indicator after
+    // Notes:
+    // - Require a non-word boundary before indicator to avoid matching inside words
+    // - Require indicator not to be followed by a word char to avoid cases like "3.2 Reasoner"
+    // Groups:
+    // - indicator-first: 1=prefix, 2=indicator, 3=amount
+    // - amount-first: 4=amount, 5=indicator
     const regex = new RegExp(
-      `(${currencyPattern})\\s*(${amountPattern})|(${amountPattern})\\s*(${currencyPattern})`,
+      `(^|[^\\w])(${currencyIndicatorPattern})\\s*(${amountPattern})|(${amountPattern})\\s*(${currencyIndicatorPattern})(?!\\w)`,
       'gi'
     );
     const matches = [];
@@ -475,8 +480,8 @@
       if (afterMatch === ' [') continue;
 
       // Extract from either format: indicator-first or amount-first
-      const numStr = match[2] || match[3];
-      const indicator = match[1] || match[4];
+      const numStr = match[3] || match[4];
+      const indicator = match[2] || match[5];
       const currency = resolveCurrency(indicator);
       const amount = parseCurrencyAmount(numStr);
 
