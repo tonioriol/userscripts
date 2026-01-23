@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GoMetric
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.11
+// @version      0.1.13
 // @description  Automatically converts imperial units to metric units and currencies
 // @author       Toni Oriol
 // @match        *://*/*
@@ -25,7 +25,7 @@
   const currencyConfig = {
     // each entry has code and optional symbol
     currencies: [
-      { code: 'USD', symbol: '$' },
+      { code: 'USD', symbol: '$', indicators: ['US$'] },
       { code: 'EUR', symbol: '€' },
       { code: 'GBP', symbol: '£' },
       { code: 'JPY', symbol: '¥' },
@@ -43,7 +43,12 @@
       { code: 'NGN', symbol: '₦' },
       { code: 'BRL', symbol: 'R$' },
       { code: 'ZAR', symbol: 'R' },
-      { code: 'CHF' }, { code: 'CAD' }, { code: 'AUD' }, { code: 'NZD' },
+      // `indicators` lets us support composite indicators like "AUD $" (otherwise `$` would be USD).
+      // Items are treated as *literal* strings (not regex), but whitespace is matched flexibly.
+      { code: 'CHF', indicators: ['SFr', 'Fr.'] },
+      { code: 'CAD', indicators: ['CA$', 'C$'] },
+      { code: 'AUD', indicators: ['AUD $', 'AU$', 'A$'] },
+      { code: 'NZD', indicators: ['NZ$'] },
       { code: 'HKD' }, { code: 'SGD' }, { code: 'SEK' }, { code: 'NOK' },
       { code: 'DKK' }, { code: 'MXN' }, { code: 'CZK' }, { code: 'HUF' },
       { code: 'AED' }, { code: 'SAR' }, { code: 'MYR' }, { code: 'IDR' },
@@ -77,6 +82,44 @@
     .filter(s => !/^[A-Za-z]$/.test(s))
     .map(escapeRegex)
     .join('|');
+
+  // Additional currency indicators (e.g. "AUD $", "A$")
+  // These are configured per currency via `indicators: [...]`.
+  // Convert indicator literals to safe regex sources, matching any whitespace flexibly.
+  const INDICATOR_WS_PATTERN = `[\\s\\u00A0\\u202F]*`;
+  const INDICATOR_WS_RE = /[\s\u00A0\u202F]+/u;
+
+  const normalizeIndicator = (s) => String(s ?? '').split(INDICATOR_WS_RE).join('').toUpperCase();
+
+  const indicatorLiteralToPattern = (literal) => {
+    const parts = String(literal ?? '').trim().split(INDICATOR_WS_RE).filter(Boolean);
+    return parts.length ? parts.map(escapeRegex).join(INDICATOR_WS_PATTERN) : '';
+  };
+
+  const { indicatorAliasesPattern, indicatorAliasToCode } = (() => {
+    const patterns = [];
+    const map = {};
+
+    for (const { code, indicators } of currencyConfig.currencies) {
+      for (const literal of indicators || []) {
+        const key = normalizeIndicator(literal);
+        if (!key) continue;
+
+        map[key] = code;
+
+        const pattern = indicatorLiteralToPattern(literal);
+        if (pattern) patterns.push(pattern);
+      }
+    }
+
+    // Longest-first so composite indicators like "AUD $" win over plain "$".
+    patterns.sort((a, b) => b.length - a.length);
+
+    return {
+      indicatorAliasesPattern: patterns.join('|'),
+      indicatorAliasToCode: map,
+    };
+  })();
 
   const currencyMultiplierMap = currencyConfig.multipliers;
   const currencyMultiplierPattern = Object.keys(currencyMultiplierMap)
@@ -470,8 +513,17 @@
     return parseFloat(numStr) * multiplier;
   };
 
-  // Resolve currency indicator (symbol or code) to currency code
-  const resolveCurrency = (indicator) => symbolToCode[indicator] || indicator?.toUpperCase();
+  // Resolve currency indicator (symbol, code, or configured composite indicator) to currency code
+  const resolveCurrency = (indicator) => {
+    const raw = indicator?.trim();
+    if (!raw) return undefined;
+
+    // Try configured composite indicators first (e.g. "AUD $")
+    const aliasCode = indicatorAliasToCode[normalizeIndicator(raw)];
+    if (aliasCode) return aliasCode;
+
+    return symbolToCode[raw] || raw.toUpperCase();
+  };
 
   // Transform currency
   const transformCurrency = async (text) => {
@@ -482,6 +534,11 @@
     // - Symbols like "$", "€" can be attached to the number ("$500").
     // - Single-letter alphabetic symbols require whitespace ("R 500" not "R500").
     const currencyIndicatorPatternParts = [];
+
+    // Configured composite indicators should match before plain symbols/codes
+    if (indicatorAliasesPattern) {
+      currencyIndicatorPatternParts.push(indicatorAliasesPattern);
+    }
     if (nonSingleLetterAlphaSymbolsPattern) {
       currencyIndicatorPatternParts.push(nonSingleLetterAlphaSymbolsPattern);
     }
