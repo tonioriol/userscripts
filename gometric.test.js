@@ -107,6 +107,21 @@ describe('GoMetric', () => {
         { input: '12.345 USD', expected: /12\.345 USD \[€[\d.,]+\]/, category: 'Currency (USD ambiguous dot: treat as thousands)' },
         { input: '12,345 USD', expected: /12,345 USD \[€[\d.,]+\]/, category: 'Currency (USD ambiguous comma: treat as thousands)' },
 
+        // Composite / disambiguated currency indicators (configured via `indicators`)
+        { input: 'AUD $602,716', expected: /AUD \$602,716 \[€[\d.,]+\]/, category: 'Currency (AUD $ composite)' },
+        { input: 'AU$ 100', expected: /AU\$ 100 \[€[\d.,]+\]/, category: 'Currency (AU$)' },
+        { input: 'A$100', expected: /A\$100 \[€[\d.,]+\]/, category: 'Currency (A$ attached)' },
+        { input: 'CA$ 100', expected: /CA\$ 100 \[€[\d.,]+\]/, category: 'Currency (CA$)' },
+        { input: 'C$100', expected: /C\$100 \[€[\d.,]+\]/, category: 'Currency (C$ attached)' },
+        { input: 'NZ$100', expected: /NZ\$100 \[€[\d.,]+\]/, category: 'Currency (NZ$ attached)' },
+        { input: 'US$ 100', expected: /US\$ 100 \[€[\d.,]+\]/, category: 'Currency (US$)' },
+        { input: 'SFr 100', expected: /SFr 100 \[€[\d.,]+\]/, category: 'Currency (CHF SFr)' },
+        { input: 'Fr. 100', expected: /Fr\. 100 \[€[\d.,]+\]/, category: 'Currency (CHF Fr.)' },
+
+        // False positives: indicators like "A$" should not trigger on letters-within-words
+        { input: 'Plan A$AP is approved', expected: '[€', negative: true, category: 'Currency (A$ in a word should NOT match)' },
+        { input: 'Token CA$H is not a price', expected: '[€', negative: true, category: 'Currency (CA$ in a word should NOT match)' },
+
         // Potential false positives / ambiguity checks
         // ZAR symbol "R" is highly ambiguous, so we only match it when separated from the amount by whitespace.
         { input: 'R50', expected: '[€', negative: true, category: 'Currency (ZAR without space should NOT match)' },
