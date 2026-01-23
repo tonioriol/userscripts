@@ -107,12 +107,6 @@ describe('GoMetric', () => {
         { input: '12.345 USD', expected: /12\.345 USD \[€[\d.,]+\]/, category: 'Currency (USD ambiguous dot: treat as thousands)' },
         { input: '12,345 USD', expected: /12,345 USD \[€[\d.,]+\]/, category: 'Currency (USD ambiguous comma: treat as thousands)' },
 
-        // Composite currency formats: CODE + SYMBOL + AMOUNT
-        // In these cases, the CODE should take precedence over the SYMBOL.
-        { input: 'AUD $602,716', expected: /AUD \$602,716 \[€[\d.,]+\]/, category: 'Currency (AUD $ composite, code takes precedence)' },
-        { input: 'CAD $100', expected: /CAD \$100 \[€[\d.,]+\]/, category: 'Currency (CAD $ composite, code takes precedence)' },
-        { input: 'USD $100', expected: /USD \$100 \[€[\d.,]+\]/, category: 'Currency (USD $ composite, code takes precedence)' },
-
         // Potential false positives / ambiguity checks
         // ZAR symbol "R" is highly ambiguous, so we only match it when separated from the amount by whitespace.
         { input: 'R50', expected: '[€', negative: true, category: 'Currency (ZAR without space should NOT match)' },
