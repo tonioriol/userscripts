@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GoMetric
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.11
+// @version      0.1.12
 // @description  Automatically converts imperial units to metric units and currencies
 // @author       Toni Oriol
 // @match        *://*/*
@@ -506,12 +506,63 @@
       `(^|[^\\w])(${currencyIndicatorPattern})\\s*(${amountPattern})|(${amountPattern})\\s*(${currencyIndicatorPattern})(?!\\w)`,
       'gi'
     );
+
+    // Composite pattern: (CODE)(SYMBOL)(AMOUNT)
+    // Example: "AUD $602,716" (where "$" alone would be ambiguous).
+    // In these cases, the explicit currency CODE takes precedence over the SYMBOL.
+    //
+    // Notes:
+    // - Only uses non-single-letter symbols (e.g. "$", "€", "£") to avoid ambiguity like "R".
+    // - Allows optional whitespace between CODE and SYMBOL.
+    // - Requires a non-word boundary before the CODE to avoid matching inside words.
+    const compositeRegex = nonSingleLetterAlphaSymbolsPattern
+      ? new RegExp(
+          `(^|[^\\w])(${codesPattern})\\s*(${nonSingleLetterAlphaSymbolsPattern})\\s*(${amountPattern})(?!\\w)`,
+          'gi'
+        )
+      : null;
+
     const matches = [];
+    const protectedRanges = [];
+
+    const rangesOverlap = (aStart, aEnd, bStart, bEnd) => aStart < bEnd && bStart < aEnd;
+    const isProtected = (start, end) => protectedRanges.some(r => rangesOverlap(start, end, r.start, r.end));
+
     let match;
 
+    // 1) Collect composite CODE+SYMBOL+AMOUNT matches first so they take precedence.
+    if (compositeRegex) {
+      while ((match = compositeRegex.exec(text)) !== null) {
+        const original = match[0];
+        const index = match.index;
+        const end = index + original.length;
+
+        // Skip if already converted (followed by " [")
+        const afterMatch = text.slice(end, end + 2);
+        if (afterMatch === ' [') continue;
+
+        const code = match[2];
+        const numStr = match[4];
+        const amount = parseCurrencyAmount(numStr);
+        const currency = code?.toUpperCase();
+
+        if (currency && currency !== HOME_CURRENCY && !isNaN(amount)) {
+          matches.push({ original, index, amount, currency });
+          protectedRanges.push({ start: index, end });
+        }
+      }
+    }
+
+    // 2) Collect regular currency matches, skipping anything already covered by composite matches.
     while ((match = regex.exec(text)) !== null) {
+      const original = match[0];
+      const index = match.index;
+      const end = index + original.length;
+
+      if (isProtected(index, end)) continue;
+
       // Skip if already converted (followed by " [")
-      const afterMatch = text.slice(match.index + match[0].length, match.index + match[0].length + 2);
+      const afterMatch = text.slice(end, end + 2);
       if (afterMatch === ' [') continue;
 
       // Extract from either format: indicator-first or amount-first
@@ -522,7 +573,7 @@
       const amount = parseCurrencyAmount(numStr);
 
       if (currency && currency !== HOME_CURRENCY && !isNaN(amount)) {
-        matches.push({ original: match[0], index: match.index, amount, currency });
+        matches.push({ original, index, amount, currency });
       }
     }
 
