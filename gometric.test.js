@@ -107,6 +107,18 @@ describe('GoMetric', () => {
         { input: '12.345 USD', expected: /12\.345 USD \[€[\d.,]+\]/, category: 'Currency (USD ambiguous dot: treat as thousands)' },
         { input: '12,345 USD', expected: /12,345 USD \[€[\d.,]+\]/, category: 'Currency (USD ambiguous comma: treat as thousands)' },
 
+        // Potential false positives / ambiguity checks
+        // ZAR symbol "R" is highly ambiguous, so we only match it when separated from the amount by whitespace.
+        { input: 'R50', expected: '[€', negative: true, category: 'Currency (ZAR without space should NOT match)' },
+        { input: 'R 50', expected: /R 50 \[€[\d.,]+\]/, category: 'Currency (ZAR with space should match)' },
+        { input: `R${NBSP}50`, expected: /R\u00A050 \[€[\d.,]+\]/, category: 'Currency (ZAR with NBSP should match)' },
+        { input: `R${NNBSP}50`, expected: /R\u202F50 \[€[\d.,]+\]/, category: 'Currency (ZAR with NNBSP should match)' },
+
+        // Train line identifiers (common false positive for ZAR): should not match (no space)
+        { input: 'Train lines R1, R2, R3 are delayed', expected: '[€', negative: true, category: 'Train lines (R1, R2, R3)' },
+        { input: 'Take the R11 to the airport', expected: '[€', negative: true, category: 'Train line R11' },
+        { input: 'Lines R1, R2 Nord, R2 Sud, R3, R4, R7, R8 i R11', expected: '[€', negative: true, category: 'Multiple train lines' },
+
         { input: 'Version 3.2 Reasoner', expected: '[€', negative: true, category: 'Version number with R word' },
         { input: 'iPhone 15 Pro Max', expected: '[€', negative: true, category: 'Product name with number' },
 

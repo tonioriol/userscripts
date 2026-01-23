@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GoMetric
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.10
+// @version      0.1.11
 // @description  Automatically converts imperial units to metric units and currencies
 // @author       Toni Oriol
 // @match        *://*/*
@@ -66,7 +66,17 @@
   const codesPattern = currencyConfig.currencies.map(c => c.code).join('|');
   // Escape special regex chars in symbols for pattern matching
   const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const symbolsPattern = currencyConfig.currencies.filter(c => c.symbol).map(c => escapeRegex(c.symbol)).join('|');
+  const currencySymbols = currencyConfig.currencies.filter(c => c.symbol).map(c => c.symbol);
+  // Treat 1-letter alphabetic symbols as ambiguous identifiers (e.g. "R"), require whitespace after them.
+  // This avoids hardcoding specific symbols while preventing matches like "R1".
+  const singleLetterAlphaSymbolsPattern = currencySymbols
+    .filter(s => /^[A-Za-z]$/.test(s))
+    .map(escapeRegex)
+    .join('|');
+  const nonSingleLetterAlphaSymbolsPattern = currencySymbols
+    .filter(s => !/^[A-Za-z]$/.test(s))
+    .map(escapeRegex)
+    .join('|');
 
   const currencyMultiplierMap = currencyConfig.multipliers;
   const currencyMultiplierPattern = Object.keys(currencyMultiplierMap)
@@ -469,7 +479,17 @@
     if (!rates) return text;
 
     // Combined pattern: any currency indicator (symbol or code)
-    const currencyIndicatorPattern = `${symbolsPattern}|${codesPattern}`;
+    // - Symbols like "$", "€" can be attached to the number ("$500").
+    // - Single-letter alphabetic symbols require whitespace ("R 500" not "R500").
+    const currencyIndicatorPatternParts = [];
+    if (nonSingleLetterAlphaSymbolsPattern) {
+      currencyIndicatorPatternParts.push(nonSingleLetterAlphaSymbolsPattern);
+    }
+    currencyIndicatorPatternParts.push(codesPattern);
+    if (singleLetterAlphaSymbolsPattern) {
+      currencyIndicatorPatternParts.push(`(?:${singleLetterAlphaSymbolsPattern})(?=[\\s\\u00A0\\u202F])`);
+    }
+    const currencyIndicatorPattern = currencyIndicatorPatternParts.join('|');
     // Amount pattern: digits with optional separators (comma, dot, or spaces for thousands)
     // Note: thousands grouping in many locales uses NBSP (\u00A0) or NNBSP (\u202F), so allow those too.
     // Optional magnitude suffix comes from the unified currency config (k/M/B/T, bn/tn, etc.)
