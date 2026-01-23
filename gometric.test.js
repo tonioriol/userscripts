@@ -12,6 +12,9 @@ beforeEach(() => {
 });
 
 describe('GoMetric', () => {
+    const NBSP = '\u00A0';
+    const NNBSP = '\u202F';
+
     // Helper to create element and get result
     const testConversion = async (html, expected) => {
         const div = document.createElement('div');
@@ -94,6 +97,18 @@ describe('GoMetric', () => {
         { input: '323.000M SEK', expected: /323\.000M SEK \[€[\d.,]+\]/, category: 'Currency (SEK millions with dots)' },
         { input: '$500M', expected: /\$500M \[€[\d.,]+\]/, category: 'Currency (USD M suffix)' },
         { input: '1.5B USD', expected: /1\.5B USD \[€[\d.,]+\]/, category: 'Currency (USD billions)' },
+        { input: 'R 9 950 000', expected: /R 9 950 000 \[€[\d.,]+\]/, category: 'Currency (ZAR with space separators)' },
+        { input: 'R 12 345,67', expected: /R 12 345,67 \[€[\d.,]+\]/, category: 'Currency (ZAR space thousands + comma decimals)' },
+        { input: `R 1${NBSP}234${NBSP}567,89`, expected: /R 1\u00A0234\u00A0567,89 \[€[\d.,]+\]/, category: 'Currency (ZAR NBSP thousands + comma decimals)' },
+        { input: `R 1${NNBSP}234${NNBSP}567,89`, expected: /R 1\u202F234\u202F567,89 \[€[\d.,]+\]/, category: 'Currency (ZAR NNBSP thousands + comma decimals)' },
+        { input: '19.0369 ZAR', expected: /19\.0369 ZAR \[€[\d.,]+\]/, category: 'Currency (ZAR decimal rate)' },
+        { input: '12.34 USD', expected: /12\.34 USD \[€[\d.,]+\]/, category: 'Currency (USD decimal dot)' },
+        { input: '12,34 USD', expected: /12,34 USD \[€[\d.,]+\]/, category: 'Currency (USD decimal comma)' },
+        { input: '12.345 USD', expected: /12\.345 USD \[€[\d.,]+\]/, category: 'Currency (USD ambiguous dot: treat as thousands)' },
+        { input: '12,345 USD', expected: /12,345 USD \[€[\d.,]+\]/, category: 'Currency (USD ambiguous comma: treat as thousands)' },
+
+        { input: 'Version 3.2 Reasoner', expected: '[€', negative: true, category: 'Version number with R word' },
+        { input: 'iPhone 15 Pro Max', expected: '[€', negative: true, category: 'Product name with number' },
 
         // HTML split patterns
         { input: '<b>1,370</b> <abbr>sqft</abbr>', expected: '[127.28 m²]', category: 'HTML (number and unit split)' },
@@ -106,10 +121,16 @@ describe('GoMetric', () => {
     ];
 
     describe('All conversions via walkDOM', () => {
-        testCases.forEach(({ input, expected, category }) => {
-            it(`converts ${input} correctly (${category})`, async () => {
+        testCases.forEach(({ input, expected, negative, category }) => {
+            const testName = negative
+                ? `does NOT convert: ${input} (${category})`
+                : `converts ${input} correctly (${category})`;
+
+            it(testName, async () => {
                 const result = await testConversion(input, expected);
-                if (expected instanceof RegExp) {
+                if (negative) {
+                    expect(result).not.toContain(expected);
+                } else if (expected instanceof RegExp) {
                     expect(result).toMatch(expected);
                 } else {
                     expect(result).toContain(expected);

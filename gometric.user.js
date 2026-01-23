@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GoMetric
 // @namespace    https://github.com/tonioriol/userscripts
-  // @version      0.1.9
+// @version      0.1.10
 // @description  Automatically converts imperial units to metric units and currencies
 // @author       Toni Oriol
 // @match        *://*/*
@@ -21,41 +21,60 @@
 
   let exchangeRates = null;
 
-  // Unified currency configuration: each entry has code and optional symbol
-  const currencies = [
-    { code: 'USD', symbol: '$' },
-    { code: 'EUR', symbol: '€' },
-    { code: 'GBP', symbol: '£' },
-    { code: 'JPY', symbol: '¥' },
-    { code: 'CNY', symbol: '¥' },
-    { code: 'INR', symbol: '₹' },
-    { code: 'RUB', symbol: '₽' },
-    { code: 'KRW', symbol: '₩' },
-    { code: 'ILS', symbol: '₪' },
-    { code: 'TRY', symbol: '₺' },
-    { code: 'THB', symbol: '฿' },
-    { code: 'PHP', symbol: '₱' },
-    { code: 'VND', symbol: '₫' },
-    { code: 'PLN', symbol: 'zł' },
-    { code: 'UAH', symbol: '₴' },
-    { code: 'NGN', symbol: '₦' },
-    { code: 'BRL', symbol: 'R$' },
-    { code: 'ZAR', symbol: 'R' },
-    { code: 'CHF' }, { code: 'CAD' }, { code: 'AUD' }, { code: 'NZD' },
-    { code: 'HKD' }, { code: 'SGD' }, { code: 'SEK' }, { code: 'NOK' },
-    { code: 'DKK' }, { code: 'MXN' }, { code: 'CZK' }, { code: 'HUF' },
-    { code: 'AED' }, { code: 'SAR' }, { code: 'MYR' }, { code: 'IDR' },
-    { code: 'TWD' }, { code: 'CLP' }, { code: 'COP' }, { code: 'PEN' },
-    { code: 'ARS' }, { code: 'EGP' }, { code: 'PKR' }, { code: 'BDT' },
-    { code: 'RON' }, { code: 'BGN' }, { code: 'HRK' }, { code: 'ISK' }
-  ];
+  // Unified currency configuration
+  const currencyConfig = {
+    // each entry has code and optional symbol
+    currencies: [
+      { code: 'USD', symbol: '$' },
+      { code: 'EUR', symbol: '€' },
+      { code: 'GBP', symbol: '£' },
+      { code: 'JPY', symbol: '¥' },
+      { code: 'CNY', symbol: '¥' },
+      { code: 'INR', symbol: '₹' },
+      { code: 'RUB', symbol: '₽' },
+      { code: 'KRW', symbol: '₩' },
+      { code: 'ILS', symbol: '₪' },
+      { code: 'TRY', symbol: '₺' },
+      { code: 'THB', symbol: '฿' },
+      { code: 'PHP', symbol: '₱' },
+      { code: 'VND', symbol: '₫' },
+      { code: 'PLN', symbol: 'zł' },
+      { code: 'UAH', symbol: '₴' },
+      { code: 'NGN', symbol: '₦' },
+      { code: 'BRL', symbol: 'R$' },
+      { code: 'ZAR', symbol: 'R' },
+      { code: 'CHF' }, { code: 'CAD' }, { code: 'AUD' }, { code: 'NZD' },
+      { code: 'HKD' }, { code: 'SGD' }, { code: 'SEK' }, { code: 'NOK' },
+      { code: 'DKK' }, { code: 'MXN' }, { code: 'CZK' }, { code: 'HUF' },
+      { code: 'AED' }, { code: 'SAR' }, { code: 'MYR' }, { code: 'IDR' },
+      { code: 'TWD' }, { code: 'CLP' }, { code: 'COP' }, { code: 'PEN' },
+      { code: 'ARS' }, { code: 'EGP' }, { code: 'PKR' }, { code: 'BDT' },
+      { code: 'RON' }, { code: 'BGN' }, { code: 'HRK' }, { code: 'ISK' }
+    ],
+    // metric suffixes that can appear in currency amounts (e.g. 1.5B USD, $500M)
+    multipliers: {
+      k: 1e3, K: 1e3,
+      M: 1e6, m: 1e6,
+      B: 1e9, bn: 1e9, Bn: 1e9,
+      T: 1e12, tn: 1e12, Tn: 1e12,
+    },
+  };
+
   // Build lookup maps and regex patterns from unified config
-  const symbolToCode = Object.fromEntries(currencies.filter(c => c.symbol).map(c => [c.symbol, c.code]));
-  const codeToSymbol = Object.fromEntries(currencies.filter(c => c.symbol).map(c => [c.code.toLowerCase(), c.symbol]));
-  const codesPattern = currencies.map(c => c.code).join('|');
+  const symbolToCode = Object.fromEntries(currencyConfig.currencies.filter(c => c.symbol).map(c => [c.symbol, c.code]));
+  const codeToSymbol = Object.fromEntries(currencyConfig.currencies.filter(c => c.symbol).map(c => [c.code.toLowerCase(), c.symbol]));
+  const codesPattern = currencyConfig.currencies.map(c => c.code).join('|');
   // Escape special regex chars in symbols for pattern matching
   const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const symbolsPattern = currencies.filter(c => c.symbol).map(c => escapeRegex(c.symbol)).join('|');
+  const symbolsPattern = currencyConfig.currencies.filter(c => c.symbol).map(c => escapeRegex(c.symbol)).join('|');
+
+  const currencyMultiplierMap = currencyConfig.multipliers;
+  const currencyMultiplierPattern = Object.keys(currencyMultiplierMap)
+    // longest first so "bn" matches before "b"
+    .sort((a, b) => b.length - a.length)
+    .map(escapeRegex)
+    .join('|');
+  const currencyMultiplierRegex = new RegExp(`(${currencyMultiplierPattern})$`);
 
   // Fetch exchange rates
   const fetchRates = async () => {
@@ -404,48 +423,41 @@
     return { value, unit };
   };
 
-  // Metric multipliers for currency amounts (M = millions, B = billions, etc.)
-  const currencyMultipliers = {
-    'k': 1e3, 'K': 1e3,
-    'M': 1e6, 'm': 1e6,  // m is ambiguous but commonly means millions in finance
-    'B': 1e9, 'bn': 1e9, 'Bn': 1e9,
-    'T': 1e12, 'tn': 1e12, 'Tn': 1e12
-  };
-
-  // Parse currency amount with smart decimal detection and metric multipliers
+  // Parse currency amount with smart decimal detection
+  // Supports: 1,234.56 | 1.234,56 | 1 234 567 | 9 950 000 | 19.0369
   const parseCurrencyAmount = (numStr) => {
     if (!numStr) return NaN;
 
-    // Check for metric multiplier suffix (M, B, k, etc.)
+    // Extract metric multiplier suffix (M, B, k, etc.)
     let multiplier = 1;
-    const multiplierMatch = numStr.match(/([kKmMbBtT]|[bBtT]n)$/);
+    const multiplierMatch = numStr.match(currencyMultiplierRegex);
     if (multiplierMatch) {
-      multiplier = currencyMultipliers[multiplierMatch[1]] || 1;
+      multiplier = currencyMultiplierMap[multiplierMatch[1]] || 1;
       numStr = numStr.slice(0, -multiplierMatch[1].length);
     }
 
+    // Normalize spaces to nothing (they're always thousands separators)
+    numStr = numStr.replace(/\s/g, '');
+
+    // Find last separator and digits after it
     const lastDot = numStr.lastIndexOf('.');
     const lastComma = numStr.lastIndexOf(',');
     const lastSep = Math.max(lastDot, lastComma);
     const digitsAfter = lastSep >= 0 ? numStr.length - lastSep - 1 : 0;
+    const sepCount = (numStr.match(/[.,]/g) || []).length;
 
-    let baseValue;
-    // Smart parsing: last separator with 2 digits after = decimal, otherwise = thousands
-    if (digitsAfter === 2 && lastDot > lastComma) {
-      baseValue = parseFloat(numStr.replace(/,/g, ''));  // $1,234.56
-    } else if (digitsAfter === 2 && lastComma > lastDot) {
-      baseValue = parseFloat(numStr.replace(/\./g, '').replace(',', '.'));  // €1.234,56
-    } else {
-      // For multiplied amounts like "84.000M", treat . as thousands separator
-      // unless it's clearly a decimal (single digit after)
-      if (multiplier > 1 && lastDot >= 0 && digitsAfter === 3) {
-        baseValue = parseFloat(numStr.replace(/\./g, ''));  // 84.000M -> 84000
-      } else {
-        baseValue = parseFloat(numStr.replace(/[,.]/g, ''));  // $1,234,567 or €1.234.567
-      }
+    // Decimal detection: single sep with ≠3 digits after, OR any sep with 2 digits after (cents)
+    const isDecimal = lastSep >= 0 && (sepCount === 1 ? digitsAfter !== 3 : digitsAfter === 2);
+
+    // Normalize to parseFloat format: remove thousands seps, convert decimal sep to dot
+    if (isDecimal && lastComma > lastDot) {
+      numStr = numStr.replace(/\./g, '').replace(',', '.');
+    } else if (!isDecimal || lastDot > lastComma) {
+      numStr = numStr.replace(/,/g, '');
     }
+    if (!isDecimal) numStr = numStr.replace(/\./g, '');
 
-    return baseValue * multiplier;
+    return parseFloat(numStr) * multiplier;
   };
 
   // Resolve currency indicator (symbol or code) to currency code
@@ -458,7 +470,10 @@
 
     // Combined pattern: any currency indicator (symbol or code)
     const currencyIndicatorPattern = `${symbolsPattern}|${codesPattern}`;
-    const amountPattern = '[0-9][0-9,.]*(?:[kKmMbBtT]|[bBtT]n)?';
+    // Amount pattern: digits with optional separators (comma, dot, or spaces for thousands)
+    // Note: thousands grouping in many locales uses NBSP (\u00A0) or NNBSP (\u202F), so allow those too.
+    // Optional magnitude suffix comes from the unified currency config (k/M/B/T, bn/tn, etc.)
+    const amountPattern = `[0-9][0-9,.\u00A0\u202F ]*[0-9](?:${currencyMultiplierPattern})?|[0-9](?:${currencyMultiplierPattern})?`;
 
     // Simple regex: (indicator)(amount) OR (amount)(indicator)
     // Notes:
@@ -482,6 +497,7 @@
       // Extract from either format: indicator-first or amount-first
       const numStr = match[3] || match[4];
       const indicator = match[2] || match[5];
+
       const currency = resolveCurrency(indicator);
       const amount = parseCurrencyAmount(numStr);
 
