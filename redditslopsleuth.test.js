@@ -10,7 +10,7 @@ let window;
 let fetchCalls;
 let engine;
 
-beforeEach(() => {
+  beforeEach(() => {
   dom = new JSDOM("<!DOCTYPE html><html><body></body></html>", {
     url: "https://www.reddit.com/",
   });
@@ -19,23 +19,24 @@ beforeEach(() => {
   document = window.document;
 
   fetchCalls = [];
-  const fetchFn = async (url) => {
-    fetchCalls.push(String(url));
-    return {
-      ok: true,
-      status: 200,
-      async json() {
-        return {
-          data: {
-            created_utc: Math.floor(Date.now() / 1000) - 10 * 24 * 60 * 60,
-            comment_karma: 10,
-            link_karma: 5,
-            is_employee: false,
-          },
-        };
-      },
+    const fetchFn = async (url) => {
+      fetchCalls.push(String(url));
+      return {
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        async json() {
+          return {
+            data: {
+              created_utc: Math.floor(Date.now() / 1000) - 10 * 24 * 60 * 60,
+              comment_karma: 10,
+              link_karma: 5,
+              is_employee: false,
+            },
+          };
+        },
+      };
     };
-  };
 
   engine = createRedditBotBuster({ win: window, doc: document, fetchFn });
 
@@ -129,6 +130,36 @@ describe("RedditBotBuster", () => {
       expect(p2).toBeTruthy();
       expect(fetchCalls.filter((u) => u.includes("/user/SomeUser/about.json")).length).toBe(1);
     });
+
+    it("backs off on 429 and avoids hammering the endpoint", async () => {
+      let n = 0;
+      const fetchFn = async (url) => {
+        n += 1;
+        fetchCalls.push(String(url));
+        return {
+          ok: false,
+          status: 429,
+          headers: {
+            get(name) {
+              if (name === "x-ratelimit-reset") return "60";
+              return null;
+            },
+          },
+          async json() {
+            return {};
+          },
+        };
+      };
+
+      engine = createRedditBotBuster({ win: window, doc: document, fetchFn });
+
+      const p1 = await engine.__test.getUserProfile("RateLimitedUser");
+      const p2 = await engine.__test.getUserProfile("RateLimitedUser");
+
+      expect(p1).toBeNull();
+      expect(p2).toBeNull();
+      expect(n).toBe(1);
+    });
   });
 
   describe("DOM scan + badge", () => {
@@ -150,7 +181,7 @@ describe("RedditBotBuster", () => {
       expect(author.nextElementSibling).toBe(badge);
     });
 
-    it("opens the side panel when clicking a badge", async () => {
+    it("opens the popover when clicking a badge (mobile-friendly)", async () => {
       // Mount UI by starting the engine.
       await engine.start();
 
@@ -173,9 +204,72 @@ describe("RedditBotBuster", () => {
 
       badge.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
 
+      const popover = document.querySelector(".rbb-popover");
+      expect(popover).toBeTruthy();
+      expect(popover.style.display).toBe("block");
+
+      // Badge click should not force-open the drawer.
+      const drawer = document.querySelector(".rbb-drawer");
+      expect(drawer).toBeTruthy();
+      expect(drawer.style.display).toBe("none");
+    });
+
+    it("opens the side panel when clicking the gear", async () => {
+      await engine.start();
+
+      const gear = document.querySelector(".rbb-gear");
+      expect(gear).toBeTruthy();
+
+      gear.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+
       const drawer = document.querySelector(".rbb-drawer");
       expect(drawer).toBeTruthy();
       expect(drawer.style.display).toBe("block");
+    });
+
+    it("injects on home feed when author isn't visible by reading author-name from overflow menu", async () => {
+      const root = document.createElement("div");
+      root.innerHTML = `
+        <article>
+          <span slot="credit-bar">
+            <a data-testid="subreddit-name" href="/r/example/">r/example</a>
+          </span>
+          <shreddit-post-overflow-menu author-name="digitally_satisfied"></shreddit-post-overflow-menu>
+          <div data-click-id="text"><p>hello</p></div>
+        </article>
+      `;
+
+      await engine.scanRoot(root);
+
+      const badge = root.querySelector('[data-rbb-badge="true"]');
+      expect(badge).toBeTruthy();
+      // Should use author-name attribute.
+      expect(badge.dataset.rbbTooltip).toContain("digitally_satisfied");
+    });
+
+    it("inserts comment badge after rpl-hovercard to avoid being covered by the handle", async () => {
+      const root = document.createElement("div");
+      root.innerHTML = `
+        <div data-testid="comment">
+          <div class="author-name-meta">
+            <rpl-hovercard>
+              <div class="author-name-meta">
+                <a class="truncate" href="/user/UserY">UserY</a>
+              </div>
+              <div slot="content"><a href="/user/NotTheAuthor">NotTheAuthor</a></div>
+            </rpl-hovercard>
+          </div>
+          <div data-testid="comment"><p>hello</p></div>
+        </div>
+      `;
+
+      await engine.scanRoot(root);
+
+      const hover = root.querySelector("rpl-hovercard");
+      expect(hover).toBeTruthy();
+      const badge = root.querySelector('[data-rbb-badge="true"]');
+      expect(badge).toBeTruthy();
+      expect(hover.nextElementSibling).toBe(badge);
     });
   });
 });

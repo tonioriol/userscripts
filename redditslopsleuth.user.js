@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RedditSlopSleuth
 // @namespace    https://github.com/tonioriol/userscripts
-  // @version      0.1.1
+// @version      0.1.8
 // @description  Heuristic bot/AI slop indicator for Reddit with per-user badges and a details side panel.
 // @author       Toni Oriol
 // @match        *://www.reddit.com/*
@@ -40,24 +40,40 @@
   };
 
   const PROFILE_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+  const PROFILE_FAILURE_TTL_MS = 15 * 60 * 1000;
   const PROFILE_MIN_INTERVAL_MS = 1200;
+  const PROFILE_STORAGE_PREFIX = "rbb-profile:";
 
   const SELECTORS = {
     // Broad containers for both new and old Reddit.
     content: [
       "article",
+      // New Reddit (web components)
+      "shreddit-post",
+      "shreddit-comment",
+      "shreddit-comment-tree",
+      // New Reddit feed credit bar (sometimes the only light-DOM post metadata we can see)
+      'span[slot="credit-bar"]',
+      'span[id^="feed-post-credit-bar-"]',
       'div[data-testid="comment"]',
       'div[data-testid="post-container"]',
       "div.comment",
       "div.link",
     ],
     username: [
+      // Newer Reddit variants
+      'a[data-testid="comment_author_link"]',
+      'a[data-testid="post_author_link"]',
+      'a[data-testid$="_author_link"]',
+      // Old Reddit
+      "a.author",
+      // Some Reddit variants
+      'a[data-click-id="user"]',
+      // Fallbacks (filtered to avoid user mentions inside body text)
       'a[href^="/user/"]',
       'a[href^="/u/"]',
       'a[href*="/user/"]',
       'a[href*="/u/"]',
-      "a.author",
-      'a[data-click-id="user"]',
     ],
     text: [
       "div.md",
@@ -134,6 +150,10 @@
         font-size: 13px;
         line-height: 1;
         cursor: pointer;
+        flex: 0 0 auto;
+        flex-shrink: 0;
+        position: relative;
+        z-index: var(--rbb-z);
       }
 
       .rbb-badge[data-rbb-kind="bot"] { border-color: rgba(220, 38, 38, 0.35); }
@@ -221,6 +241,44 @@
         pointer-events: none;
         display: none;
       }
+
+      .rbb-popover {
+        position: fixed;
+        z-index: var(--rbb-z);
+        width: min(360px, calc(100vw - 24px));
+        max-height: min(70vh, 520px);
+        overflow: auto;
+        background: rgba(255,255,255,0.98);
+        color: var(--rbb-text);
+        border: 1px solid var(--rbb-border);
+        border-radius: 12px;
+        box-shadow: var(--rbb-shadow);
+        padding: 12px;
+        display: none;
+      }
+
+      .rbb-popover-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      .rbb-popover-title {
+        font-weight: 700;
+        font-size: 14px;
+      }
+
+      .rbb-popover-close {
+        border: 1px solid var(--rbb-border);
+        border-radius: 9999px;
+        width: 28px;
+        height: 28px;
+        background: rgba(255,255,255,0.9);
+        cursor: pointer;
+        line-height: 1;
+      }
     `;
   };
 
@@ -254,10 +312,48 @@
   const safeText = (node) => node?.innerText ?? node?.textContent ?? "";
   const compactWs = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
 
+  const isHoverCapable = (win) => {
+    try {
+      return Boolean(win?.matchMedia?.("(hover: hover) and (pointer: fine)")?.matches);
+    } catch {
+      return false;
+    }
+  };
+
+  const closestAcrossShadow = (win, startEl, selector) => {
+    let el = startEl;
+    while (el) {
+      if (el instanceof win.Element && el.matches?.(selector)) return el;
+
+      const parent = el.parentElement;
+      if (parent) {
+        el = parent;
+        continue;
+      }
+
+      const root = el.getRootNode?.();
+      // Attempt to cross open shadow roots.
+      el = root?.host || null;
+    }
+
+    return null;
+  };
+
   const normalizeUsername = (raw) => {
     const s = String(raw ?? "").trim();
     if (!s) return "";
     return s.replace(/^u\//i, "").replace(/^\/u\//i, "");
+  };
+
+  const usernameFromHref = (href) => {
+    const raw = String(href ?? "");
+    const m = raw.match(/\/(?:user|u)\/([^/?#]+)/i);
+    if (!m) return "";
+    try {
+      return normalizeUsername(decodeURIComponent(m[1]));
+    } catch {
+      return normalizeUsername(m[1]);
+    }
   };
 
   const makeId = (() => {
@@ -552,25 +648,80 @@
     const state = {
       open: false,
       selectedEntryId: null,
+      activePopoverEntryId: null,
+      popoverHideTimer: null,
       entries: new Map(), // id -> entry
       perUserHistory: new Map(), // username -> Map(normText -> count)
       profileCache: new Map(), // username -> { fetchedAt, data, promise }
       badgeByUsername: new Map(), // username -> Set(badgeEl)
       tooltipEl: null,
+      popoverEl: null,
       ui: null,
       nextProfileFetchAt: 0,
       profileQueue: Promise.resolve(),
+      ratelimitedUntil: 0,
+    };
+
+    const safeHeaderNumber = (headers, name) => {
+      try {
+        const v = headers?.get?.(name);
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const readStoredProfile = (username) => {
+      try {
+        const raw = win?.localStorage?.getItem?.(`${PROFILE_STORAGE_PREFIX}${username}`);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return null;
+        const fetchedAt = Number(parsed.fetchedAt);
+        if (!Number.isFinite(fetchedAt) || fetchedAt <= 0) return null;
+
+        const age = Date.now() - fetchedAt;
+        if (parsed.status === "ok") {
+          if (age < PROFILE_CACHE_TTL_MS) return { status: "ok", data: parsed.data ?? null, fetchedAt };
+          return null;
+        }
+
+        if (parsed.status === "fail") {
+          if (age < PROFILE_FAILURE_TTL_MS) return { status: "fail", data: null, fetchedAt };
+          return null;
+        }
+      } catch {
+        return null;
+      }
+
+      return null;
+    };
+
+    const writeStoredProfile = (username, payload) => {
+      try {
+        win?.localStorage?.setItem?.(
+          `${PROFILE_STORAGE_PREFIX}${username}`,
+          JSON.stringify(payload)
+        );
+      } catch {
+        // Ignore quota/private mode.
+      }
     };
 
     const profileQueueFetch = async (fn) => {
       state.profileQueue = state.profileQueue.then(async () => {
         const now = Date.now();
-        const waitMs = Math.max(0, state.nextProfileFetchAt - now);
+        const gate = Math.max(state.nextProfileFetchAt, state.ratelimitedUntil);
+        const waitMs = Math.max(0, gate - now);
         if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
         try {
           return await fn();
         } finally {
-          state.nextProfileFetchAt = Date.now() + PROFILE_MIN_INTERVAL_MS;
+          state.nextProfileFetchAt = Math.max(
+            Date.now() + PROFILE_MIN_INTERVAL_MS,
+            state.ratelimitedUntil
+          );
         }
       });
       return state.profileQueue;
@@ -580,9 +731,19 @@
       const u = normalizeUsername(username);
       if (!u) return null;
 
+      // If Reddit is currently rate-limiting us, skip.
+      if (Date.now() < state.ratelimitedUntil) return null;
+
+      // Persistent cache (survives SPA navigation / page refreshes).
+      const stored = readStoredProfile(u);
+      if (stored?.status === "ok") return stored.data || null;
+      if (stored?.status === "fail") return null;
+
       const cached = state.profileCache.get(u);
-      if (cached?.data && Date.now() - cached.fetchedAt < PROFILE_CACHE_TTL_MS) {
-        return cached.data;
+      if (cached) {
+        const age = Date.now() - cached.fetchedAt;
+        if (cached.data && age < PROFILE_CACHE_TTL_MS) return cached.data;
+        if (cached.error && age < PROFILE_FAILURE_TTL_MS) return null;
       }
 
       if (cached?.promise) return cached.promise;
@@ -592,18 +753,53 @@
           const res = await fetchFn(`/user/${encodeURIComponent(u)}/about.json`, {
             credentials: "include",
           });
+
+          // Respect Reddit rate limiting.
+          if (res.status === 429) {
+            const resetSeconds = safeHeaderNumber(res.headers, "x-ratelimit-reset");
+            const backoffMs = (resetSeconds ?? 120) * 1000;
+            state.ratelimitedUntil = Math.max(state.ratelimitedUntil, Date.now() + backoffMs);
+
+            state.profileCache.set(u, {
+              fetchedAt: Date.now(),
+              data: null,
+              promise: null,
+              error: true,
+            });
+            writeStoredProfile(u, { status: "fail", fetchedAt: Date.now() });
+            return null;
+          }
+
           if (!res.ok) throw new Error(`about.json HTTP ${res.status}`);
+
+          // If we're close to the limit, pre-emptively slow down.
+          const remaining = safeHeaderNumber(res.headers, "x-ratelimit-remaining");
+          const resetSeconds = safeHeaderNumber(res.headers, "x-ratelimit-reset");
+          if (remaining !== null && remaining <= 2 && resetSeconds !== null) {
+            state.ratelimitedUntil = Math.max(
+              state.ratelimitedUntil,
+              Date.now() + resetSeconds * 1000
+            );
+          }
+
           const json = await res.json();
           const data = json?.data;
-          state.profileCache.set(u, { fetchedAt: Date.now(), data, promise: null });
+          state.profileCache.set(u, { fetchedAt: Date.now(), data, promise: null, error: false });
+          writeStoredProfile(u, { status: "ok", fetchedAt: Date.now(), data });
           return data || null;
         } catch {
-          state.profileCache.set(u, { fetchedAt: Date.now(), data: null, promise: null });
+          state.profileCache.set(u, {
+            fetchedAt: Date.now(),
+            data: null,
+            promise: null,
+            error: true,
+          });
+          writeStoredProfile(u, { status: "fail", fetchedAt: Date.now() });
           return null;
         }
       });
 
-      state.profileCache.set(u, { fetchedAt: Date.now(), data: null, promise });
+      state.profileCache.set(u, { fetchedAt: Date.now(), data: null, promise, error: false });
       return promise;
     };
 
@@ -634,6 +830,11 @@
       tooltip.className = "rbb-tooltip";
       doc.body.appendChild(tooltip);
       state.tooltipEl = tooltip;
+
+      const popover = doc.createElement("div");
+      popover.className = "rbb-popover";
+      doc.body.appendChild(popover);
+      state.popoverEl = popover;
 
       const render = () => {
         const selected = state.selectedEntryId
@@ -774,15 +975,62 @@
         if (state.open) render();
       };
 
+      const hidePopover = () => {
+        if (!state.popoverEl) return;
+        state.popoverEl.style.display = "none";
+        state.activePopoverEntryId = null;
+      };
+
+      const cancelPopoverHide = () => {
+        if (state.popoverHideTimer) {
+          win.clearTimeout(state.popoverHideTimer);
+          state.popoverHideTimer = null;
+        }
+      };
+
+      const schedulePopoverHide = (delayMs = 120) => {
+        cancelPopoverHide();
+        state.popoverHideTimer = win.setTimeout(() => {
+          hidePopover();
+        }, delayMs);
+      };
+
       overlay.addEventListener("click", () => setOpen(false));
       gearBtn.addEventListener("click", () => setOpen(!state.open));
+
+      doc.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") hidePopover();
+      });
+
+      doc.addEventListener("click", (e) => {
+        const target = e.target;
+        if (!(target instanceof win.Node)) return;
+        const pop = state.popoverEl;
+        if (pop && pop.style.display === "block" && !pop.contains(target)) {
+          hidePopover();
+        }
+      });
+
+      // Keep hover popover open while hovering it.
+      popover.addEventListener("pointerenter", () => cancelPopoverHide());
+      popover.addEventListener("pointerleave", () => schedulePopoverHide(120));
 
       root.appendChild(gearBtn);
       doc.body.appendChild(root);
       doc.body.appendChild(overlay);
       doc.body.appendChild(drawer);
 
-      state.ui = { root, gearBtn, overlay, drawer, render, setOpen };
+      state.ui = {
+        root,
+        gearBtn,
+        overlay,
+        drawer,
+        render,
+        setOpen,
+        hidePopover,
+        cancelPopoverHide,
+        schedulePopoverHide,
+      };
       return state.ui;
     };
 
@@ -805,6 +1053,120 @@
       t.style.left = `${x + 14}px`;
       t.style.top = `${y + 14}px`;
       t.style.display = "block";
+    };
+
+    const setPopover = ({ badgeEl, entry, show }) => {
+      const pop = state.popoverEl;
+      if (!pop) return;
+      if (!show || !entry) {
+        pop.style.display = "none";
+        state.activePopoverEntryId = null;
+        return;
+      }
+
+      const reasons = [
+        ...entry.reasons.bot,
+        ...entry.reasons.ai,
+        ...entry.reasons.profile,
+      ].slice(0, 12);
+
+      const escapeHtml = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      pop.innerHTML = `
+        <div class="rbb-popover-header">
+          <div class="rbb-popover-title">${entry.classification.emoji} u/${entry.username}</div>
+          <button type="button" class="rbb-popover-close" aria-label="Close">✕</button>
+        </div>
+        <div class="rbb-text-sm rbb-muted" style="margin-bottom:8px">Bot ${entry.scores.bot.toFixed(1)} · AI ${entry.scores.ai.toFixed(1)} · Profile ${entry.scores.profile.toFixed(1)}</div>
+        <ul class="rbb-why">${reasons.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>
+      `;
+
+      pop.querySelector(".rbb-popover-close")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        pop.style.display = "none";
+        state.activePopoverEntryId = null;
+      });
+
+      // Show first, then position with measured size.
+      pop.style.display = "block";
+      state.activePopoverEntryId = entry.id;
+
+      const margin = 12;
+      const rect = badgeEl?.getBoundingClientRect?.() || { left: margin, top: margin, right: margin, bottom: margin };
+      const popRect = pop.getBoundingClientRect();
+      const w = popRect.width || 320;
+      const h = popRect.height || 200;
+
+      let x = rect.right + 10;
+      let y = rect.top;
+
+      x = clamp(x, margin, win.innerWidth - w - margin);
+      y = clamp(y, margin, win.innerHeight - h - margin);
+
+      pop.style.left = `${Math.round(x)}px`;
+      pop.style.top = `${Math.round(y)}px`;
+    };
+
+    const resolveHiddenPostAuthor = (container) => {
+      const menu =
+        container.querySelector?.("shreddit-post-overflow-menu[author-name]") ||
+        container.querySelector?.("[author-name]");
+      const name = menu?.getAttribute?.("author-name");
+      return normalizeUsername(name);
+    };
+
+    const resolveFeedInsertionEl = (container) => {
+      return (
+        // Prefer the hovercard host itself; inserting inside its slotted structure can get hidden.
+        container.querySelector?.('faceplate-hovercard[data-id="community-hover-card"], faceplate-hovercard') ||
+        container.querySelector?.('[data-testid="subreddit-name"]') ||
+        container.querySelector?.('[slot="credit-bar"]') ||
+        container.querySelector?.("shreddit-post-overflow-menu") ||
+        null
+      );
+    };
+
+    const hasExistingBadgeNear = (authorEl) => {
+      if (!authorEl) return false;
+
+      const rplHover = closestAcrossShadow(win, authorEl, "rpl-hovercard");
+      if (rplHover?.nextElementSibling?.getAttribute?.(BADGE_ATTR) === "true") return true;
+
+      const authorMeta = authorEl.closest?.(".author-name-meta");
+      if (authorMeta?.nextElementSibling?.getAttribute?.(BADGE_ATTR) === "true") return true;
+
+      const nowrap = authorEl.querySelector?.(".whitespace-nowrap");
+      if (nowrap?.querySelector?.(`[${BADGE_ATTR}="true"]`)) return true;
+
+      if (authorEl.nextElementSibling?.getAttribute?.(BADGE_ATTR) === "true") return true;
+
+      return false;
+    };
+
+    const insertBadge = ({ authorEl, badgeEl }) => {
+      // Comments (new Reddit): author is often wrapped in <rpl-hovercard>. Inserting inside it can
+      // cause layout glitches; place badge as a sibling after the hovercard.
+      const rplHover = closestAcrossShadow(win, authorEl, "rpl-hovercard");
+      if (rplHover) {
+        rplHover.insertAdjacentElement("afterend", badgeEl);
+        return;
+      }
+
+      // Comments: the author is inside an overflow-hidden container; insert as a flex item after it.
+      const authorMeta = authorEl?.closest?.(".author-name-meta");
+      if (authorMeta) {
+        authorMeta.insertAdjacentElement("afterend", badgeEl);
+        return;
+      }
+
+      // Subreddit/post headers: keep name+badge together inside nowrap span to avoid line wraps.
+      const nowrap = authorEl?.querySelector?.(".whitespace-nowrap");
+      if (nowrap) {
+        nowrap.appendChild(badgeEl);
+        return;
+      }
+
+      authorEl?.insertAdjacentElement?.("afterend", badgeEl);
     };
 
     const computeEntry = async ({ element, authorEl, username, text }) => {
@@ -842,7 +1204,7 @@
       if (!u || !authorEl) return;
 
       // One badge per author element.
-      if (authorEl.parentElement?.querySelector?.(`[${BADGE_ATTR}="true"]`)) {
+      if (hasExistingBadgeNear(authorEl)) {
         return;
       }
 
@@ -855,7 +1217,7 @@
       const entryId = makeId();
       badge.setAttribute(ENTRY_ID_ATTR, entryId);
 
-      authorEl.insertAdjacentElement("afterend", badge);
+      insertBadge({ authorEl, badgeEl: badge });
       addBadgeRef(u, badge);
 
       const ui = buildUi();
@@ -894,30 +1256,54 @@
         e.preventDefault();
         e.stopPropagation();
         state.selectedEntryId = entry.id;
-        ui.setOpen(true);
-        ui.render();
+
+        // Mobile-friendly behavior: click toggles a popover (no sidebar).
+        const isOpen = state.activePopoverEntryId === entry.id;
+        if (isOpen) {
+          setPopover({ show: false });
+        } else {
+          setPopover({ badgeEl: badge, entry, show: true });
+        }
+
+        // If the drawer is already open (gear), keep it in sync without forcing it open.
+        if (state.open) ui.render();
       });
 
-      badge.addEventListener("mouseover", (e) => {
+      const hoverEnabled = isHoverCapable(win);
+
+      badge.addEventListener("pointerenter", (e) => {
+        if (hoverEnabled) {
+          ui.cancelPopoverHide?.();
+          setPopover({ badgeEl: badge, entry, show: true });
+          return;
+        }
+
         const html = badge.dataset.rbbTooltip;
         if (!html) return;
         setTooltip({ x: e.pageX, y: e.pageY, html, show: true });
       });
-      badge.addEventListener("mouseout", () => {
+
+      badge.addEventListener("pointerleave", () => {
+        if (hoverEnabled) {
+          ui.schedulePopoverHide?.(120);
+          return;
+        }
         setTooltip({ show: false });
       });
-      badge.addEventListener("mousemove", (e) => {
+
+      badge.addEventListener("pointermove", (e) => {
+        if (hoverEnabled) return;
         const html = badge.dataset.rbbTooltip;
         if (!html) return;
         setTooltip({ x: e.pageX, y: e.pageY, html, show: true });
       });
     };
 
-    const extractUsername = (container) => {
-      const userSel = SELECTORS.username.join(", ");
-      const el = container.querySelector(userSel);
-      const text = compactWs(safeText(el));
-      return { el, username: normalizeUsername(text) };
+    const extractUsernameFromAuthorEl = (authorEl) => {
+      const text = compactWs(safeText(authorEl));
+      const fromText = normalizeUsername(text);
+      if (fromText) return fromText;
+      return usernameFromHref(authorEl.getAttribute?.("href"));
     };
 
     const extractText = (container) => {
@@ -938,20 +1324,128 @@
 
     const scanRoot = async (root) => {
       const contentSel = SELECTORS.content.join(", ");
-      const nodes = root.querySelectorAll(contentSel);
+      const hostSel = [
+        "shreddit-post",
+        "shreddit-comment",
+        "shreddit-comment-tree",
+        "rpl-hovercard",
+        "faceplate-hovercard",
+      ].join(", ");
+
+      // Reddit uses shadow DOM heavily; querySelectorAll() does not cross shadow roots.
+      // Do a bounded BFS across known host components with open shadow roots.
+      const nodesSet = new Set();
+      const seenRoots = new Set();
+      const queue = [root];
+
+      while (queue.length) {
+        const r = queue.pop();
+        if (!r || seenRoots.has(r)) continue;
+        seenRoots.add(r);
+
+        if (typeof r.querySelectorAll === "function") {
+          for (const n of r.querySelectorAll(contentSel)) nodesSet.add(n);
+          for (const host of r.querySelectorAll(hostSel)) {
+            if (host?.shadowRoot) queue.push(host.shadowRoot);
+          }
+        }
+      }
+
+      const nodes = Array.from(nodesSet);
       const tasks = [];
+
+      // Note: `div[data-testid="comment"]` is also a *container* on new Reddit.
+      // Keep it for extraction, but exclude it from mention filtering.
+      const textSelForMentionFiltering = SELECTORS.text
+        .filter((s) => s !== 'div[data-testid="comment"]')
+        .join(", ");
+
+      const usernameSels = SELECTORS.username;
+      const findAuthorEl = (container) => {
+        // Prefer the visible handle link in comment meta blocks (avoid the avatar link).
+        const authorMetaTextLink = container.querySelector?.(
+          '.author-name-meta a[href^="/user/"], .author-name-meta a[href^="/u/"]'
+        );
+        if (
+          authorMetaTextLink &&
+          !(textSelForMentionFiltering && authorMetaTextLink.closest?.(textSelForMentionFiltering))
+        ) {
+          return authorMetaTextLink;
+        }
+
+        for (const sel of usernameSels) {
+          const el = container.querySelector(sel);
+          if (!el) continue;
+          // Avoid u/mentions inside the body text.
+          if (textSelForMentionFiltering && el.closest?.(textSelForMentionFiltering)) continue;
+          // Avoid links inside hovercard content slots (not the visible author handle).
+          if (el.closest?.('[slot="content"]')) continue;
+          // Avoid user links inside overflow menus.
+          if (el.closest?.("shreddit-post-overflow-menu")) continue;
+          // Avoid avatar-only profile links (common in comments).
+          const visibleText = compactWs(safeText(el));
+          if (!visibleText && el.querySelector?.("img, faceplate-img, svg")) continue;
+          return el;
+        }
+
+        // Final fallback: first user link not in body text.
+        const candidates = Array.from(
+          container.querySelectorAll('a[href^="/user/"], a[href^="/u/"], a[href*="/user/"], a[href*="/u/"]')
+        );
+        for (const el of candidates) {
+          if (textSelForMentionFiltering && el.closest?.(textSelForMentionFiltering)) continue;
+          if (el.closest?.('[slot="content"]')) continue;
+          if (el.closest?.("shreddit-post-overflow-menu")) continue;
+          const visibleText = compactWs(safeText(el));
+          if (!visibleText && el.querySelector?.("img, faceplate-img, svg")) continue;
+          return el;
+        }
+        return null;
+      };
 
       for (const node of nodes) {
         if (!(node instanceof win.HTMLElement)) continue;
-        if (node.getAttribute(PROCESSED_ATTR) === "true") continue;
+        const hasBadge = Boolean(node.querySelector?.(`[${BADGE_ATTR}="true"]`));
+        const processed = node.getAttribute(PROCESSED_ATTR) === "true";
+
+        // Some parts of Reddit re-render and can remove our injected badge while keeping the same
+        // container node. If that happens, allow reprocessing.
+        if (processed && !hasBadge) node.removeAttribute(PROCESSED_ATTR);
+        if (processed && hasBadge) continue;
+
+        // If a badge already exists anywhere inside, mark as done.
+        if (hasBadge) {
+          node.setAttribute(PROCESSED_ATTR, "true");
+          continue;
+        }
+
+        // Skip injecting into our own UI.
+        if (node.closest?.(`#${UI_ROOT_ID}, .rbb-drawer, .rbb-overlay, .rbb-tooltip, .rbb-popover`)) {
+          continue;
+        }
+
+        let authorEl = findAuthorEl(node);
+        let username = authorEl ? extractUsernameFromAuthorEl(authorEl) : "";
+
+        // Home feed sometimes doesn't show the author. Also, posts can contain other user links
+        // (avatars, hovercards, etc.) that are NOT the author. Prefer overflow-menu author-name.
+        const hiddenAuthor = resolveHiddenPostAuthor(node);
+        if (hiddenAuthor) {
+          const visibleMatches = username && normalizeUsername(username) === hiddenAuthor;
+          if (!visibleMatches) {
+            username = hiddenAuthor;
+            authorEl =
+              resolveFeedInsertionEl(node) ||
+              node.querySelector?.("shreddit-post-overflow-menu") ||
+              authorEl;
+          }
+        }
+
+        if (!authorEl || !username) continue;
+
+        // Note: posts in the feed may have no body text; allow empty string.
+        const text = extractText(node) || "";
         node.setAttribute(PROCESSED_ATTR, "true");
-
-        const { el: authorEl, username } = extractUsername(node);
-        if (!username || !authorEl) continue;
-
-        const text = extractText(node);
-        if (!text) continue;
-
         tasks.push(attachBadge({ element: node, authorEl, username, text }));
       }
 
