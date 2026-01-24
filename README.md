@@ -44,6 +44,10 @@ Enables native video controls and Picture-in-Picture on websites. Removes overla
 
 Adds download button for VSCode extensions on the Visual Studio Marketplace.
 
+### RedditSlopSleuth
+
+Heuristic bot/AI slop indicator for Reddit.
+
 ## Installation
 
 1. Install a userscript manager (Tampermonkey, Userscripts for Safari iOS, etc.)
