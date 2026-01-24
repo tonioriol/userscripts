@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RedditSlopSleuth
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.0
+  // @version      0.1.1
 // @description  Heuristic bot/AI slop indicator for Reddit with per-user badges and a details side panel.
 // @author       Toni Oriol
 // @match        *://www.reddit.com/*
@@ -342,7 +342,8 @@
   };
 
   const scoreTextSignals = (text, { perUserHistory } = {}) => {
-    const raw = compactWs(text);
+    const rawOriginal = String(text ?? "");
+    const raw = compactWs(rawOriginal);
     const lower = raw.toLowerCase();
     const words = raw.split(/\s+/).filter(Boolean);
 
@@ -351,10 +352,27 @@
       botText: { score: 0, reasons: [] },
     };
 
-    if (words.length < 8) {
-      // not enough signal; treat as unknown unless other signals exist
-      return result;
-    }
+    const hasEnoughWordsForStyleSignals = words.length >= 8;
+
+    const safeStripToWordish = (s) => {
+      try {
+        // Keep unicode letters/numbers when supported.
+        // c8 ignore next 3
+        return s.replace(/[^\p{L}\p{N}<>]+/gu, " ");
+      } catch {
+        // Fallback for older runtimes.
+        return s.replace(/[^a-z0-9<>]+/gi, " ");
+      }
+    };
+
+    const normalizeForNearDuplicate = (s) => {
+      const lowered = String(s ?? "").toLowerCase();
+      const withoutUrls = lowered.replace(/https?:\/\/\S+/g, " <url> ");
+      const withoutNums = withoutUrls.replace(/\b\d+(?:[.,]\d+)?\b/g, " <num> ");
+      const withoutMd = withoutNums.replace(/[\`*_>#]/g, " ");
+      const wordish = safeStripToWordish(withoutMd);
+      return compactWs(wordish).slice(0, 600);
+    };
 
     // ---- AI-ish signals (heuristics, not a detector) ----
     const aiReasons = result.ai.reasons;
@@ -362,6 +380,24 @@
     if (/\bas an ai\b|\bas an ai language model\b|\bi (can|cannot) (assist|help)\b/i.test(raw)) {
       result.ai.score += 10;
       aiReasons.push("self-disclosed AI (+10)");
+    }
+
+    // Meta discourse / analysis voice often produced by LLMs (EN + ES)
+    if (
+      /(\blet'?s\b|\blet me\b).*\b(analy[sz]e|break (?:it )?down|go through)\b/i.test(raw) ||
+      /(\bvoy a\b|\bvamos a\b).*\b(analizar|desglosar|explicar|revisar)\b/i.test(raw)
+    ) {
+      result.ai.score += 1.5;
+      aiReasons.push("meta 'let's analyze/break down' framing (+1.5)");
+    }
+
+    // Common template-y enumerations: "signs/indicators/evidence" style.
+    if (
+      /(\bindicators\b|\bsigns\b|\bevidence\b)\s+(that|of)\b/i.test(raw) ||
+      /(\bindicadores\b|\bseñales\b|\bevidencia\b)\s+(de|que)\b/i.test(raw)
+    ) {
+      result.ai.score += 1;
+      aiReasons.push("template 'signs/indicators/evidence' phrasing (+1)");
     }
 
     const transitionHits = [
@@ -372,8 +408,16 @@
       "it is important to note",
       "overall",
       "ultimately",
+      // ES
+      "en conclusión",
+      "en resumen",
+      "además",
+      "por otro lado",
+      "es importante señalar",
+      "en general",
+      "en última instancia",
     ].filter((p) => lower.includes(p)).length;
-    if (transitionHits > 0 && words.length > 40) {
+    if (transitionHits > 0 && hasEnoughWordsForStyleSignals && words.length > 40) {
       const add = clamp(transitionHits * 1.2, 1, 4);
       result.ai.score += add;
       aiReasons.push(`formulaic transitions x${transitionHits} (+${add.toFixed(1)})`);
@@ -381,7 +425,7 @@
 
     const contractionHits = (lower.match(/\b(i'm|you're|we're|they're|can't|won't|didn't|isn't|it's)\b/g) || [])
       .length;
-    if (words.length > 60 && contractionHits <= 1) {
+    if (hasEnoughWordsForStyleSignals && words.length > 60 && contractionHits <= 1) {
       result.ai.score += 2;
       aiReasons.push("very low contractions (+2)");
     }
@@ -390,7 +434,7 @@
       .split(/[.!?]+/)
       .map((s) => compactWs(s))
       .filter(Boolean);
-    if (sentences.length >= 4) {
+    if (hasEnoughWordsForStyleSignals && sentences.length >= 4) {
       const lens = sentences.map((s) => s.split(/\s+/).filter(Boolean).length);
       const avg = lens.reduce((a, b) => a + b, 0) / lens.length;
       const variance =
@@ -402,16 +446,43 @@
       }
     }
 
-    const listLines = raw.split("\n").filter((l) => /^\s*(?:-\s+|\d+\.|\*\s+)/.test(l)).length;
-    if (listLines >= 3 && words.length > 60) {
+    const lines = rawOriginal.split(/\r?\n/).map((l) => l.trim());
+    const listLines = lines.filter((l) => /^(?:[-*]\s+|\d+\.)/.test(l)).length;
+    if (hasEnoughWordsForStyleSignals && listLines >= 3 && words.length > 60) {
       result.ai.score += 1.5;
       aiReasons.push("structured list formatting (+1.5)");
     }
 
+    // Over-structured "Wikipedia section" vibe: many headings for a long post.
+    const headingLines = lines.filter((l) => /^#{1,6}\s+\S+/.test(l)).length;
+    if (words.length >= 350 && headingLines >= 6) {
+      result.ai.score += 1.5;
+      aiReasons.push(`heavy markdown sectioning (# headings x${headingLines}) (+1.5)`);
+    }
+
+    // Many outbound links in a long post can correlate with synthetic "compilation" style.
+    const citationLinkCount = (rawOriginal.match(/https?:\/\//gi) || []).length;
+    if (words.length >= 250 && citationLinkCount >= 6) {
+      result.ai.score += 1;
+      aiReasons.push(`many links/citations x${citationLinkCount} (+1)`);
+    }
+
+    // Coordinates / overly precise geodata formatting (weak signal, but common in synthetic writeups)
+    if (/\b\d{1,2}°\d{2}'\d{2}"[NS]\b.*\b\d{1,3}°\d{2}'\d{2}"[EW]\b/i.test(rawOriginal)) {
+      result.ai.score += 0.5;
+      aiReasons.push("formatted GPS coordinates (+0.5)");
+    }
+
     // Emoji penalty: content with emojis tends to be more human; reduce AI suspicion.
-    if (/([\uD83C-\uDBFF][\uDC00-\uDFFF])/.test(raw)) {
+    if (/([\uD83C-\uDBFF][\uDC00-\uDFFF])/.test(rawOriginal)) {
       result.ai.score -= 1;
       aiReasons.push("contains emoji (-1)");
+    }
+
+    // Mild human cues: rhetorical questions / casual markers can reduce AI suspicion a bit.
+    if (/(\?\s*$)|\b(?:lol|lmao|tbh|imo|imho|jaja|jajaja)\b/i.test(rawOriginal)) {
+      result.ai.score -= 0.5;
+      aiReasons.push("contains casual/rhetorical markers (-0.5)");
     }
 
     // ---- Bot-ish text signals ----
@@ -444,13 +515,15 @@
     }
 
     if (perUserHistory) {
-      const norm = lower.replace(/\s+/g, " ").slice(0, 400);
-      const prev = perUserHistory.get(norm) || 0;
-      if (prev >= 1) {
-        result.botText.score += 2;
-        botReasons.push("repeated near-duplicate message by same user (+2)");
+      const norm = normalizeForNearDuplicate(rawOriginal);
+      if (norm.length >= 24) {
+        const prev = perUserHistory.get(norm) || 0;
+        if (prev >= 1) {
+          result.botText.score += 2;
+          botReasons.push("repeated near-duplicate message by same user (+2)");
+        }
+        perUserHistory.set(norm, prev + 1);
       }
-      perUserHistory.set(norm, prev + 1);
     }
 
     result.ai.score = clamp(result.ai.score, 0, 20);

@@ -61,6 +61,21 @@ describe("RedditBotBuster", () => {
       expect(r2.score).toBeGreaterThan(0);
     });
 
+    it("scores very short generic replies as bot-ish text (no early return)", () => {
+      const s = engine.scoreTextSignals("lol");
+      expect(s.botText.score).toBeGreaterThanOrEqual(2);
+      expect(s.botText.reasons.join(" ")).toContain("generic very short reply");
+    });
+
+    it("scores link spam and suspicious TLDs even for short messages", () => {
+      const s = engine.scoreTextSignals(
+        "check this https://shady.xyz and also https://other.xyz"
+      );
+      expect(s.botText.score).toBeGreaterThanOrEqual(6);
+      expect(s.botText.reasons.join(" ")).toContain("suspicious TLD");
+      expect(s.botText.reasons.join(" ")).toContain("multiple links");
+    });
+
     it("scores AI self-disclosure in text", () => {
       const text =
         "As an AI language model I can help you with this question. " +
@@ -68,6 +83,29 @@ describe("RedditBotBuster", () => {
       const s = engine.scoreTextSignals(text);
       expect(s.ai.score).toBeGreaterThanOrEqual(10);
       expect(s.ai.reasons.join(" ")).toContain("self-disclosed");
+    });
+
+    it("scores meta 'let me analyze' framing as AI-ish", () => {
+      const s = engine.scoreTextSignals(
+        "The user is asking whether this was LLM generated. Let me analyze the text carefully."
+      );
+      expect(s.ai.score).toBeGreaterThan(0);
+      expect(s.ai.reasons.join(" ")).toContain("meta");
+    });
+
+    it("detects near-duplicate messages by the same user even when URLs/numbers change", () => {
+      const perUserHistory = new Map();
+      const t1 =
+        "Here is my detailed explanation of what happened, read https://example.com/?id=123 for context. Thanks.";
+      const t2 =
+        "Here is my detailed explanation of what happened, read https://example.com/?id=999 for context. Thanks.";
+
+      const s1 = engine.scoreTextSignals(t1, { perUserHistory });
+      const s2 = engine.scoreTextSignals(t2, { perUserHistory });
+
+      expect(s1.botText.reasons.join(" ")).not.toContain("near-duplicate");
+      expect(s2.botText.score).toBeGreaterThanOrEqual(2);
+      expect(s2.botText.reasons.join(" ")).toContain("near-duplicate");
     });
 
     it("classifies as human when signals are low and profile is strong", () => {
