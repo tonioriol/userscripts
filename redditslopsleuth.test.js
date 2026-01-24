@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { JSDOM } from "jsdom";
 
-import { createRedditBotBuster } from "./redditslopsleuth.user.js";
+import { createRedditSlopSleuth } from "./redditslopsleuth.user.js";
 
 let dom;
 let document;
@@ -38,7 +38,7 @@ let engine;
       };
     };
 
-  engine = createRedditBotBuster({ win: window, doc: document, fetchFn });
+  engine = createRedditSlopSleuth({ win: window, doc: document, fetchFn });
 
   global.window = window;
   global.document = document;
@@ -53,7 +53,7 @@ afterEach(() => {
   delete global.localStorage;
 });
 
-describe("RedditBotBuster", () => {
+describe("RedditSlopSleuth", () => {
   describe("scoring", () => {
     it("scores suspicious usernames", () => {
       const r1 = engine.scoreUsername("SomeBot");
@@ -84,6 +84,37 @@ describe("RedditBotBuster", () => {
       const s = engine.scoreTextSignals(text);
       expect(s.ai.score).toBeGreaterThanOrEqual(10);
       expect(s.ai.reasons.join(" ")).toContain("self-disclosed");
+    });
+
+    it("does not treat generic 'I can help' phrasing as AI self-disclosure", () => {
+      const s = engine.scoreTextSignals(
+        "I can help you with this question. Here is some additional content to make it long enough."
+      );
+
+      expect(s.ai.reasons.join(" ")).not.toContain("self-disclosed AI (+10)");
+    });
+
+    it("scores structural patterns (headings + revision markers) as AI-ish", () => {
+      const text = [
+        "Análisis técnico del accidente",
+        "",
+        "(EDIT:) Actualizaciones:",
+        "- Añadido dato 1",
+        "- Añadido dato 2",
+        "",
+        "Contexto:",
+        "Texto largo ".repeat(80),
+        "",
+        "Reconstrucción:",
+        "Más texto ".repeat(80),
+        "",
+        "(EDIT2:) Actualizaciones:",
+        "- Añadida fuente",
+      ].join("\n");
+
+      const s = engine.scoreTextSignals(text);
+      expect(s.ai.score).toBeGreaterThan(0);
+      expect(s.ai.reasons.join(" ")).toMatch(/section density|revision markers/i);
     });
 
     it("scores meta 'let me analyze' framing as AI-ish", () => {
@@ -151,7 +182,7 @@ describe("RedditBotBuster", () => {
         };
       };
 
-      engine = createRedditBotBuster({ win: window, doc: document, fetchFn });
+      engine = createRedditSlopSleuth({ win: window, doc: document, fetchFn });
 
       const p1 = await engine.__test.getUserProfile("RateLimitedUser");
       const p2 = await engine.__test.getUserProfile("RateLimitedUser");
@@ -167,17 +198,36 @@ describe("RedditBotBuster", () => {
       const root = document.createElement("div");
       root.innerHTML = `
         <div class="comment">
-          <a class="author">SomeBot1234</a>
+          <a class="author" href="/user/SomeBot1234">SomeBot1234</a>
           <div class="md"><p>lol</p></div>
         </div>
       `;
 
       await engine.scanRoot(root);
 
-      const badge = root.querySelector('[data-rbb-badge="true"]');
+      const badge = root.querySelector('[data-rss-badge="true"]');
       expect(badge).toBeTruthy();
 
       const author = root.querySelector(".author");
+      expect(author.nextElementSibling).toBe(badge);
+    });
+
+    it("inserts badge outside the author link to avoid Reddit navigation/hovercard capture", async () => {
+      const root = document.createElement("div");
+      root.innerHTML = `
+        <div class="comment">
+          <a class="author" href="/user/UserX"><span class="whitespace-nowrap">UserX</span></a>
+          <div class="md"><p>hello</p></div>
+        </div>
+      `;
+
+      await engine.scanRoot(root);
+
+      const badge = root.querySelector('[data-rss-badge="true"]');
+      expect(badge).toBeTruthy();
+      expect(badge.closest("a")).toBeNull();
+
+      const author = root.querySelector("a.author");
       expect(author.nextElementSibling).toBe(badge);
     });
 
@@ -199,17 +249,17 @@ describe("RedditBotBuster", () => {
 
       await engine.scanRoot(document);
 
-      const badge = root.querySelector('[data-rbb-badge="true"]');
+      const badge = root.querySelector('[data-rss-badge="true"]');
       expect(badge).toBeTruthy();
 
       badge.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
 
-      const popover = document.querySelector(".rbb-popover");
+      const popover = document.querySelector(".rss-popover");
       expect(popover).toBeTruthy();
       expect(popover.style.display).toBe("block");
 
       // Badge click should not force-open the drawer.
-      const drawer = document.querySelector(".rbb-drawer");
+      const drawer = document.querySelector(".rss-drawer");
       expect(drawer).toBeTruthy();
       expect(drawer.style.display).toBe("none");
     });
@@ -217,12 +267,12 @@ describe("RedditBotBuster", () => {
     it("opens the side panel when clicking the gear", async () => {
       await engine.start();
 
-      const gear = document.querySelector(".rbb-gear");
+      const gear = document.querySelector(".rss-gear");
       expect(gear).toBeTruthy();
 
       gear.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
 
-      const drawer = document.querySelector(".rbb-drawer");
+      const drawer = document.querySelector(".rss-drawer");
       expect(drawer).toBeTruthy();
       expect(drawer.style.display).toBe("block");
     });
@@ -241,10 +291,10 @@ describe("RedditBotBuster", () => {
 
       await engine.scanRoot(root);
 
-      const badge = root.querySelector('[data-rbb-badge="true"]');
+      const badge = root.querySelector('[data-rss-badge="true"]');
       expect(badge).toBeTruthy();
       // Should use author-name attribute.
-      expect(badge.dataset.rbbTooltip).toContain("digitally_satisfied");
+      expect(badge.dataset.rssTooltip).toContain("digitally_satisfied");
     });
 
     it("inserts comment badge after rpl-hovercard to avoid being covered by the handle", async () => {
@@ -267,7 +317,7 @@ describe("RedditBotBuster", () => {
 
       const hover = root.querySelector("rpl-hovercard");
       expect(hover).toBeTruthy();
-      const badge = root.querySelector('[data-rbb-badge="true"]');
+      const badge = root.querySelector('[data-rss-badge="true"]');
       expect(badge).toBeTruthy();
       expect(hover.nextElementSibling).toBe(badge);
     });
