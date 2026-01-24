@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RedditSlopSleuth
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.8
+// @version      0.1.13
 // @description  Heuristic bot/AI slop indicator for Reddit with per-user badges and a details side panel.
 // @author       Toni Oriol
 // @match        *://www.reddit.com/*
@@ -22,12 +22,10 @@
    * - Optional Reddit profile fetch (`/user/<name>/about.json`) with caching + rate limiting.
    * - Badges are injected next to usernames; clicking shows a right-side panel.
    */
-
-  const SCRIPT_ID = "redditbotbuster";
-  const UI_ROOT_ID = "rbb-root";
-  const BADGE_ATTR = "data-rbb-badge";
-  const PROCESSED_ATTR = "data-rbb-processed";
-  const ENTRY_ID_ATTR = "data-rbb-entry-id";
+  const UI_ROOT_ID = "rss-root";
+  const BADGE_ATTR = "data-rss-badge";
+  const PROCESSED_ATTR = "data-rss-processed";
+  const ENTRY_ID_ATTR = "data-rss-entry-id";
 
   // Best-effort mode: always use all available signals.
   // - Always fetch profile JSON (cached + rate-limited)
@@ -42,7 +40,7 @@
   const PROFILE_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
   const PROFILE_FAILURE_TTL_MS = 15 * 60 * 1000;
   const PROFILE_MIN_INTERVAL_MS = 1200;
-  const PROFILE_STORAGE_PREFIX = "rbb-profile:";
+  const PROFILE_STORAGE_PREFIX = "rss-profile:";
 
   const SELECTORS = {
     // Broad containers for both new and old Reddit.
@@ -84,60 +82,60 @@
   };
 
   const uiCss = () => {
-    // Small Tailwind-like utility subset + component styles. All classnames are prefixed `rbb-`.
+    // Small Tailwind-like utility subset + component styles. All classnames are prefixed `rss-`.
     return `
       :root {
-        --rbb-z: 2147483646;
-        --rbb-bg: rgba(255,255,255,0.92);
-        --rbb-border: rgba(0,0,0,0.12);
-        --rbb-shadow: 0 12px 32px rgba(0,0,0,0.25);
-        --rbb-text: #111827;
-        --rbb-muted: #6b7280;
-        --rbb-blue: #2563eb;
-        --rbb-red: #dc2626;
-        --rbb-purple: #7c3aed;
-        --rbb-green: #16a34a;
+        --rss-z: 2147483646;
+        --rss-bg: rgba(255,255,255,0.92);
+        --rss-border: rgba(0,0,0,0.12);
+        --rss-shadow: 0 12px 32px rgba(0,0,0,0.25);
+        --rss-text: #111827;
+        --rss-muted: #6b7280;
+        --rss-blue: #2563eb;
+        --rss-red: #dc2626;
+        --rss-purple: #7c3aed;
+        --rss-green: #16a34a;
       }
 
       /* Utilities */
-      .rbb-fixed { position: fixed; }
-      .rbb-absolute { position: absolute; }
-      .rbb-inset-0 { inset: 0; }
-      .rbb-right-0 { right: 0; }
-      .rbb-top-0 { top: 0; }
-      .rbb-bottom-4 { bottom: 1rem; }
-      .rbb-right-4 { right: 1rem; }
-      .rbb-flex { display: flex; }
-      .rbb-flex-col { flex-direction: column; }
-      .rbb-items-center { align-items: center; }
-      .rbb-justify-between { justify-content: space-between; }
-      .rbb-gap-2 { gap: 0.5rem; }
-      .rbb-gap-3 { gap: 0.75rem; }
-      .rbb-p-3 { padding: 0.75rem; }
-      .rbb-p-4 { padding: 1rem; }
-      .rbb-px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
-      .rbb-py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
-      .rbb-rounded { border-radius: 0.5rem; }
-      .rbb-rounded-full { border-radius: 9999px; }
-      .rbb-border { border: 1px solid var(--rbb-border); }
-      .rbb-shadow { box-shadow: var(--rbb-shadow); }
-      .rbb-text-sm { font-size: 12px; }
-      .rbb-text-base { font-size: 14px; }
-      .rbb-font-semibold { font-weight: 600; }
-      .rbb-font-bold { font-weight: 700; }
-      .rbb-muted { color: var(--rbb-muted); }
-      .rbb-bg { background: var(--rbb-bg); }
-      .rbb-bg-solid { background: #fff; }
-      .rbb-w-96 { width: 24rem; }
-      .rbb-max-h-80vh { max-height: 80vh; }
-      .rbb-overflow-auto { overflow: auto; }
-      .rbb-select-none { user-select: none; }
-      .rbb-cursor-pointer { cursor: pointer; }
-      .rbb-hover-bg:hover { background: rgba(0,0,0,0.06); }
-      .rbb-focus-ring:focus { outline: 2px solid var(--rbb-blue); outline-offset: 2px; }
+      .rss-fixed { position: fixed; }
+      .rss-absolute { position: absolute; }
+      .rss-inset-0 { inset: 0; }
+      .rss-right-0 { right: 0; }
+      .rss-top-0 { top: 0; }
+      .rss-bottom-4 { bottom: 1rem; }
+      .rss-right-4 { right: 1rem; }
+      .rss-flex { display: flex; }
+      .rss-flex-col { flex-direction: column; }
+      .rss-items-center { align-items: center; }
+      .rss-justify-between { justify-content: space-between; }
+      .rss-gap-2 { gap: 0.5rem; }
+      .rss-gap-3 { gap: 0.75rem; }
+      .rss-p-3 { padding: 0.75rem; }
+      .rss-p-4 { padding: 1rem; }
+      .rss-px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
+      .rss-py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+      .rss-rounded { border-radius: 0.5rem; }
+      .rss-rounded-full { border-radius: 9999px; }
+      .rss-border { border: 1px solid var(--rss-border); }
+      .rss-shadow { box-shadow: var(--rss-shadow); }
+      .rss-text-sm { font-size: 12px; }
+      .rss-text-base { font-size: 14px; }
+      .rss-font-semibold { font-weight: 600; }
+      .rss-font-bold { font-weight: 700; }
+      .rss-muted { color: var(--rss-muted); }
+      .rss-bg { background: var(--rss-bg); }
+      .rss-bg-solid { background: #fff; }
+      .rss-w-96 { width: 24rem; }
+      .rss-max-h-80vh { max-height: 80vh; }
+      .rss-overflow-auto { overflow: auto; }
+      .rss-select-none { user-select: none; }
+      .rss-cursor-pointer { cursor: pointer; }
+      .rss-hover-bg:hover { background: rgba(0,0,0,0.06); }
+      .rss-focus-ring:focus { outline: 2px solid var(--rss-blue); outline-offset: 2px; }
 
       /* Badge */
-      .rbb-badge {
+      .rss-badge {
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -145,7 +143,7 @@
         width: 20px;
         height: 20px;
         border-radius: 9999px;
-        border: 1px solid var(--rbb-border);
+        border: 1px solid var(--rss-border);
         background: rgba(255,255,255,0.85);
         font-size: 13px;
         line-height: 1;
@@ -153,85 +151,85 @@
         flex: 0 0 auto;
         flex-shrink: 0;
         position: relative;
-        z-index: var(--rbb-z);
+        z-index: var(--rss-z);
       }
 
-      .rbb-badge[data-rbb-kind="bot"] { border-color: rgba(220, 38, 38, 0.35); }
-      .rbb-badge[data-rbb-kind="ai"] { border-color: rgba(124, 58, 237, 0.35); }
-      .rbb-badge[data-rbb-kind="human"] { border-color: rgba(22, 163, 74, 0.35); }
+      .rss-badge[data-rss-kind="bot"] { border-color: rgba(220, 38, 38, 0.35); }
+      .rss-badge[data-rss-kind="ai"] { border-color: rgba(124, 58, 237, 0.35); }
+      .rss-badge[data-rss-kind="human"] { border-color: rgba(22, 163, 74, 0.35); }
 
       /* Drawer */
-      #${UI_ROOT_ID} { position: fixed; z-index: var(--rbb-z); }
-      .rbb-gear {
+      #${UI_ROOT_ID} { position: fixed; z-index: var(--rss-z); }
+      .rss-gear {
         width: 44px;
         height: 44px;
         border-radius: 9999px;
-        border: 1px solid var(--rbb-border);
-        background: var(--rbb-bg);
-        box-shadow: var(--rbb-shadow);
-        color: var(--rbb-text);
+        border: 1px solid var(--rss-border);
+        background: var(--rss-bg);
+        box-shadow: var(--rss-shadow);
+        color: var(--rss-text);
         font-size: 18px;
       }
 
-      .rbb-overlay {
+      .rss-overlay {
         background: rgba(0,0,0,0.30);
         backdrop-filter: blur(2px);
         -webkit-backdrop-filter: blur(2px);
       }
 
-      .rbb-drawer {
+      .rss-drawer {
         height: 100vh;
-        background: var(--rbb-bg);
-        border-left: 1px solid var(--rbb-border);
-        box-shadow: var(--rbb-shadow);
+        background: var(--rss-bg);
+        border-left: 1px solid var(--rss-border);
+        box-shadow: var(--rss-shadow);
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-        color: var(--rbb-text);
+        color: var(--rss-text);
       }
 
-      .rbb-row {
-        border: 1px solid var(--rbb-border);
+      .rss-row {
+        border: 1px solid var(--rss-border);
         border-radius: 0.5rem;
         padding: 0.5rem 0.75rem;
         background: rgba(255,255,255,0.6);
       }
 
-      .rbb-pill {
+      .rss-pill {
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        border: 1px solid var(--rbb-border);
+        border: 1px solid var(--rss-border);
         border-radius: 9999px;
         padding: 4px 8px;
         font-size: 12px;
         background: rgba(255,255,255,0.7);
       }
 
-      .rbb-btn {
-        border: 1px solid var(--rbb-border);
+      .rss-btn {
+        border: 1px solid var(--rss-border);
         border-radius: 0.5rem;
         padding: 8px 10px;
         background: rgba(255,255,255,0.8);
         cursor: pointer;
       }
-      .rbb-btn:hover { background: rgba(255,255,255,1); }
-      .rbb-btn-primary { border-color: rgba(37, 99, 235, 0.35); }
+      .rss-btn:hover { background: rgba(255,255,255,1); }
+      .rss-btn-primary { border-color: rgba(37, 99, 235, 0.35); }
 
-      .rbb-toggle {
+      .rss-toggle {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
       }
 
-      .rbb-why {
+      .rss-why {
         margin: 0;
         padding-left: 16px;
-        color: var(--rbb-muted);
+        color: var(--rss-muted);
       }
 
-      .rbb-tooltip {
+      .rss-tooltip {
         position: fixed;
-        z-index: var(--rbb-z);
+        z-index: var(--rss-z);
         max-width: 320px;
         background: rgba(17, 24, 39, 0.92);
         color: #fff;
@@ -242,22 +240,22 @@
         display: none;
       }
 
-      .rbb-popover {
+      .rss-popover {
         position: fixed;
-        z-index: var(--rbb-z);
+        z-index: var(--rss-z);
         width: min(360px, calc(100vw - 24px));
         max-height: min(70vh, 520px);
         overflow: auto;
         background: rgba(255,255,255,0.98);
-        color: var(--rbb-text);
-        border: 1px solid var(--rbb-border);
+        color: var(--rss-text);
+        border: 1px solid var(--rss-border);
         border-radius: 12px;
-        box-shadow: var(--rbb-shadow);
+        box-shadow: var(--rss-shadow);
         padding: 12px;
         display: none;
       }
 
-      .rbb-popover-header {
+      .rss-popover-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -265,13 +263,13 @@
         margin-bottom: 8px;
       }
 
-      .rbb-popover-title {
+      .rss-popover-title {
         font-weight: 700;
         font-size: 14px;
       }
 
-      .rbb-popover-close {
-        border: 1px solid var(--rbb-border);
+      .rss-popover-close {
+        border: 1px solid var(--rss-border);
         border-radius: 9999px;
         width: 28px;
         height: 28px;
@@ -360,7 +358,7 @@
     let n = 0;
     return () => {
       n += 1;
-      return `rbb-${n}`;
+      return `rss-${n}`;
     };
   })();
 
@@ -437,194 +435,658 @@
     return { score, reasons };
   };
 
-  const scoreTextSignals = (text, { perUserHistory } = {}) => {
-    const rawOriginal = String(text ?? "");
+  /**
+   * Declarative text rules (data-only) + fixed rule engine.
+   *
+   * Rules are evaluated by the same pipeline:
+   *   1) Extract features from the text (fixed code)
+   *   2) Evaluate conditions + matchers (fixed code)
+   *   3) Compute a score delta (fixed code)
+   */
+
+  const safeStripToWordish = (s) => {
+    try {
+      // Keep unicode letters/numbers when supported.
+      // c8 ignore next 3
+      return String(s ?? "").replace(/[^\p{L}\p{N}<>]+/gu, " ");
+    } catch {
+      // Fallback for older runtimes.
+      return String(s ?? "").replace(/[^a-z0-9<>]+/gi, " ");
+    }
+  };
+
+  const normalizeForNearDuplicate = (s) => {
+    const lowered = String(s ?? "").toLowerCase();
+    const withoutUrls = lowered.replace(/https?:\/\/\S+/g, " <url> ");
+    const withoutNums = withoutUrls.replace(/\b\d+(?:[.,]\d+)?\b/g, " <num> ");
+    const withoutMd = withoutNums.replace(/[\`*_>#]/g, " ");
+    const wordish = safeStripToWordish(withoutMd);
+    return compactWs(wordish).slice(0, 600);
+  };
+
+  const normalizeLineTemplate = (s) => {
+    const lowered = String(s ?? "").toLowerCase();
+    const withoutUrls = lowered.replace(/https?:\/\/\S+/g, " <url> ");
+    const withoutNums = withoutUrls.replace(/\b\d+(?:[.,]\d+)?\b/g, " <num> ");
+    const withoutHandles = withoutNums
+      .replace(/\bu\/[a-z0-9_-]+\b/gi, " <user> ")
+      .replace(/\br\/[a-z0-9_-]+\b/gi, " <sub> ");
+    const wordish = safeStripToWordish(withoutHandles);
+    return compactWs(wordish).slice(0, 140);
+  };
+
+  const isHeadingishLine = (l) => {
+    const s = String(l || "").trim();
+    if (!s) return false;
+    if (s.length < 6 || s.length > 72) return false;
+    if (/^https?:\/\//i.test(s)) return false;
+    if (/^["'“”‘’]/.test(s)) return false;
+    if (/[.!?]$/.test(s)) return false;
+    const punct = (s.match(/[.,;()\[\]{}]/g) || []).length;
+    if (punct > 3) return false;
+    if (/[：:]$/.test(s)) return true;
+    try {
+      return /^\p{L}/u.test(s);
+    } catch {
+      return /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(s);
+    }
+  };
+
+  const compileRegex = (pattern, flags = "") => {
+    try {
+      return new RegExp(pattern, flags);
+    } catch {
+      return null;
+    }
+  };
+
+  const formatDelta = (delta, decimals = null) => {
+    if (!Number.isFinite(delta)) return String(delta);
+    if (decimals === null) {
+      if (delta % 1 === 0) return String(delta);
+      return delta.toFixed(1);
+    }
+    return delta.toFixed(decimals);
+  };
+
+  const renderReason = (template, vars) => {
+    return String(template)
+      .replaceAll("{hits}", String(vars.hits ?? 0))
+      .replaceAll("{value}", String(vars.value ?? ""))
+      .replaceAll("{delta}", String(vars.delta ?? ""));
+  };
+
+  const resolveReasonValue = (rule, f, hits) => {
+    if (Number.isFinite(rule.reasonValue)) return rule.reasonValue;
+    if (rule.reasonValueKey) return f[rule.reasonValueKey];
+    return hits;
+  };
+
+  const buildTextFeatures = ({ rawOriginal, perUserHistory }) => {
     const raw = compactWs(rawOriginal);
     const lower = raw.toLowerCase();
-    const words = raw.split(/\s+/).filter(Boolean);
-
-    const result = {
-      ai: { score: 0, reasons: [] },
-      botText: { score: 0, reasons: [] },
-    };
-
-    const hasEnoughWordsForStyleSignals = words.length >= 8;
-
-    const safeStripToWordish = (s) => {
-      try {
-        // Keep unicode letters/numbers when supported.
-        // c8 ignore next 3
-        return s.replace(/[^\p{L}\p{N}<>]+/gu, " ");
-      } catch {
-        // Fallback for older runtimes.
-        return s.replace(/[^a-z0-9<>]+/gi, " ");
-      }
-    };
-
-    const normalizeForNearDuplicate = (s) => {
-      const lowered = String(s ?? "").toLowerCase();
-      const withoutUrls = lowered.replace(/https?:\/\/\S+/g, " <url> ");
-      const withoutNums = withoutUrls.replace(/\b\d+(?:[.,]\d+)?\b/g, " <num> ");
-      const withoutMd = withoutNums.replace(/[\`*_>#]/g, " ");
-      const wordish = safeStripToWordish(withoutMd);
-      return compactWs(wordish).slice(0, 600);
-    };
-
-    // ---- AI-ish signals (heuristics, not a detector) ----
-    const aiReasons = result.ai.reasons;
-
-    if (/\bas an ai\b|\bas an ai language model\b|\bi (can|cannot) (assist|help)\b/i.test(raw)) {
-      result.ai.score += 10;
-      aiReasons.push("self-disclosed AI (+10)");
-    }
-
-    // Meta discourse / analysis voice often produced by LLMs (EN + ES)
-    if (
-      /(\blet'?s\b|\blet me\b).*\b(analy[sz]e|break (?:it )?down|go through)\b/i.test(raw) ||
-      /(\bvoy a\b|\bvamos a\b).*\b(analizar|desglosar|explicar|revisar)\b/i.test(raw)
-    ) {
-      result.ai.score += 1.5;
-      aiReasons.push("meta 'let's analyze/break down' framing (+1.5)");
-    }
-
-    // Common template-y enumerations: "signs/indicators/evidence" style.
-    if (
-      /(\bindicators\b|\bsigns\b|\bevidence\b)\s+(that|of)\b/i.test(raw) ||
-      /(\bindicadores\b|\bseñales\b|\bevidencia\b)\s+(de|que)\b/i.test(raw)
-    ) {
-      result.ai.score += 1;
-      aiReasons.push("template 'signs/indicators/evidence' phrasing (+1)");
-    }
-
-    const transitionHits = [
-      "in conclusion",
-      "in summary",
-      "furthermore",
-      "moreover",
-      "it is important to note",
-      "overall",
-      "ultimately",
-      // ES
-      "en conclusión",
-      "en resumen",
-      "además",
-      "por otro lado",
-      "es importante señalar",
-      "en general",
-      "en última instancia",
-    ].filter((p) => lower.includes(p)).length;
-    if (transitionHits > 0 && hasEnoughWordsForStyleSignals && words.length > 40) {
-      const add = clamp(transitionHits * 1.2, 1, 4);
-      result.ai.score += add;
-      aiReasons.push(`formulaic transitions x${transitionHits} (+${add.toFixed(1)})`);
-    }
-
-    const contractionHits = (lower.match(/\b(i'm|you're|we're|they're|can't|won't|didn't|isn't|it's)\b/g) || [])
-      .length;
-    if (hasEnoughWordsForStyleSignals && words.length > 60 && contractionHits <= 1) {
-      result.ai.score += 2;
-      aiReasons.push("very low contractions (+2)");
-    }
+    const words = raw ? raw.split(/\s+/).filter(Boolean) : [];
+    const wordCount = words.length;
+    const lines = rawOriginal.split(/\r?\n/).map((l) => String(l ?? "").trim());
+    const nonEmptyLines = lines.filter(Boolean);
 
     const sentences = raw
       .split(/[.!?]+/)
       .map((s) => compactWs(s))
       .filter(Boolean);
-    if (hasEnoughWordsForStyleSignals && sentences.length >= 4) {
-      const lens = sentences.map((s) => s.split(/\s+/).filter(Boolean).length);
-      const avg = lens.reduce((a, b) => a + b, 0) / lens.length;
-      const variance =
-        lens.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / lens.length;
 
-      if (avg >= 18 && variance < 10 && words.length > 80) {
-        result.ai.score += 2;
-        aiReasons.push("long uniform sentences (+2)");
+    const sentenceLens = sentences.map((s) => s.split(/\s+/).filter(Boolean).length);
+    const sentenceCount = sentenceLens.length;
+    const sentenceAvgLen =
+      sentenceCount > 0 ? sentenceLens.reduce((a, b) => a + b, 0) / sentenceCount : 0;
+    const sentenceLenVariance = (() => {
+      if (sentenceCount <= 1) return 0;
+      const avg = sentenceAvgLen;
+      return sentenceLens.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / sentenceCount;
+    })();
+
+    const linkCount = (rawOriginal.match(/https?:\/\//gi) || []).length;
+    const numberTokenCount = (rawOriginal.match(/\b\d+(?:[.,]\d+)?\b/g) || []).length;
+
+    const emojiPresent = /([\uD83C-\uDBFF][\uDC00-\uDFFF])/.test(rawOriginal);
+    const casualMarkerPresent =
+      /(\?\s*$)|\b(?:lol|lmao|tbh|imo|imho|jaja|jajaja)\b/i.test(rawOriginal);
+    const gpsCoordPresent =
+      /\b\d{1,2}°\d{2}'\d{2}"[NS]\b.*\b\d{1,3}°\d{2}'\d{2}"[EW]\b/i.test(rawOriginal);
+    const suspiciousTldPresent = /\.(?:xyz|top|click|buzz|live|shop|online|site|store)\b/i.test(raw);
+    const contractionHitCount =
+      (lower.match(/\b(i'm|you're|we're|they're|can't|won't|didn't|isn't|it's)\b/g) || []).length;
+    const listLineCount = nonEmptyLines.filter((l) => /^(?:[-*•]\s+|\d+\.)/.test(l)).length;
+    const mdHeadingCount = nonEmptyLines.filter((l) => /^#{1,6}\s+\S+/.test(l)).length;
+    const headingishLineCount = nonEmptyLines.filter(isHeadingishLine).length;
+    const revisionMarkerCount = nonEmptyLines.filter((l) =>
+      /^\(?\s*(?:edit|update|actualiz\w*)\d*\s*[:：]/i.test(l)
+    ).length;
+
+    const templateMaxRepeatCount = (() => {
+      const templateCounts = new Map();
+      for (const l of nonEmptyLines) {
+        const t = normalizeLineTemplate(l);
+        if (!t) continue;
+        if (t.split(/\s+/).length < 4) continue;
+        templateCounts.set(t, (templateCounts.get(t) || 0) + 1);
+      }
+      return Math.max(0, ...templateCounts.values());
+    })();
+
+    const shortReplyNormalized = lower.replace(/[^a-z.]/g, "");
+
+    return {
+      rawOriginal,
+      raw,
+      lower,
+      words,
+      wordCount,
+      lines,
+      nonEmptyLines,
+      hasEnoughWordsForStyleSignals: wordCount >= 8,
+      sentences,
+      sentenceCount,
+      sentenceAvgLen,
+      sentenceLenVariance,
+      linkCount,
+      numberTokenCount,
+      emojiPresent,
+      casualMarkerPresent,
+      gpsCoordPresent,
+      suspiciousTldPresent,
+      contractionHitCount,
+      listLineCount,
+      mdHeadingCount,
+      headingishLineCount,
+      revisionMarkerCount,
+      templateMaxRepeatCount,
+      shortReplyNormalized,
+      perUserHistory,
+    };
+  };
+
+  const compileTextRules = (rules) => {
+    return rules.map((r) => {
+      const match = r.match
+        ? (() => {
+            if (r.match.type === "regex") {
+              return {
+                ...r.match,
+                _re: compileRegex(r.match.pattern, r.match.flags || ""),
+              };
+            }
+            if (r.match.type === "any_regex") {
+              return {
+                ...r.match,
+                _res: (r.match.patterns || [])
+                  .map((p) => compileRegex(p, r.match.flags || ""))
+                  .filter(Boolean),
+              };
+            }
+            if (r.match.type === "phrases") {
+              const phrases = (r.match.phrases || []).map((p) => String(p).toLowerCase());
+              return { ...r.match, _phrases: phrases };
+            }
+            if (r.match.type === "set_in") {
+              return { ...r.match, _set: new Set(r.match.values || []) };
+            }
+            return r.match;
+          })()
+        : null;
+
+      return { ...r, match };
+    });
+  };
+
+  const getFeature = (f, key) => {
+    if (key === "$hits") return f.$hits;
+    return f[key];
+  };
+
+  const compare = (left, op, right) => {
+    switch (op) {
+      case "gte":
+        return left >= right;
+      case "gt":
+        return left > right;
+      case "lte":
+        return left <= right;
+      case "lt":
+        return left < right;
+      case "eq":
+        return left === right;
+      case "neq":
+        return left !== right;
+      default:
+        return false;
+    }
+  };
+
+  const evalMatcherHits = (match, f) => {
+    if (!match) return 0;
+
+    if (match.type === "regex") {
+      const re = match._re;
+      if (!re) return 0;
+      const val = String(f[match.target] ?? "");
+      if (match.mode === "presence") return re.test(val) ? 1 : 0;
+      return (val.match(re) || []).length;
+    }
+
+    if (match.type === "any_regex") {
+      const val = String(f[match.target] ?? "");
+      return (match._res || []).filter((re) => re.test(val)).length;
+    }
+
+    if (match.type === "phrases") {
+      const hay = String(f[match.target] ?? "");
+      const phrases = match._phrases || [];
+      let hits = 0;
+      for (const p of phrases) {
+        if (p && hay.includes(p)) hits += 1;
+      }
+      return hits;
+    }
+
+    if (match.type === "set_in") {
+      const val = String(f[match.target] ?? "");
+      return match._set?.has(val) ? 1 : 0;
+    }
+
+    if (match.type === "per_user_near_duplicate") {
+      const h = f.perUserHistory;
+      if (!h) return 0;
+      const norm = normalizeForNearDuplicate(f.rawOriginal);
+      if (norm.length < (match.minLen ?? 24)) return 0;
+      const prev = h.get(norm) || 0;
+      h.set(norm, prev + 1);
+      return prev >= 1 ? 1 : 0;
+    }
+
+    return 0;
+  };
+
+  const computeDelta = (score, f) => {
+    if (!score) return 0;
+    if (score.mode === "fixed") return Number(score.value ?? 0);
+
+    if (score.mode === "linear_clamped") {
+      const inputKey = score.input ?? "$hits";
+      const input = Number(getFeature(f, inputKey) ?? 0);
+      if (!Number.isFinite(input)) return 0;
+      const minInput = score.minInput;
+      if (Number.isFinite(minInput) && input < minInput) return 0;
+
+      const offset = Number(score.offset ?? 0);
+      const mul = Number(score.mul ?? 1);
+      let delta = (input - offset) * mul;
+
+      if (Number.isFinite(score.min)) delta = Math.max(Number(score.min), delta);
+      if (Number.isFinite(score.max)) delta = Math.min(Number(score.max), delta);
+      return delta;
+    }
+
+    return 0;
+  };
+
+  const rulePasses = (rule, f, hits) => {
+    // If a rule declares a matcher, require it to hit by default.
+    // (Otherwise rules like self-disclosure would apply to every text.)
+    if (rule.match && !rule.allowZeroHits) {
+      if (!Number.isFinite(hits) || hits <= 0) return false;
+    }
+
+    const conditions = rule.when || [];
+    for (const cond of conditions) {
+      const left = getFeature(f, cond.key);
+      if (!compare(left, cond.op, cond.value)) return false;
+    }
+    return true;
+  };
+
+  const runDeclarativeTextRules = (compiledRules, features) => {
+    const ai = { score: 0, reasons: [] };
+    const botText = { score: 0, reasons: [] };
+
+    const logRuleHit = (data) => {
+      try {
+        // eslint-disable-next-line no-console
+        console.log("[RedditSlopSleuth] text rule hit", data);
+      } catch {
+        // Ignore.
+      }
+    };
+
+    for (const rule of compiledRules) {
+      const hits = evalMatcherHits(rule.match, features);
+      const f = { ...features, $hits: hits };
+      if (!rulePasses(rule, f, hits)) continue;
+
+      const delta = computeDelta(rule.score, f);
+      if (!Number.isFinite(delta) || delta === 0) continue;
+
+      const reasonValue = resolveReasonValue(rule, f, hits);
+      const vars = {
+        hits,
+        value: reasonValue,
+        delta: formatDelta(delta, rule.reasonDecimals ?? null),
+      };
+      const reason = rule.reason ? renderReason(rule.reason, vars) : null;
+
+      logRuleHit({
+        id: rule.id,
+        group: rule.group,
+        hits,
+        delta,
+        reason,
+        text: String(features.rawOriginal ?? "").slice(0, 240),
+      });
+
+      if (rule.group === "ai") {
+        ai.score += delta;
+        if (reason) ai.reasons.push(reason);
+      } else if (rule.group === "botText") {
+        botText.score += delta;
+        if (reason) botText.reasons.push(reason);
       }
     }
 
-    const lines = rawOriginal.split(/\r?\n/).map((l) => l.trim());
-    const listLines = lines.filter((l) => /^(?:[-*]\s+|\d+\.)/.test(l)).length;
-    if (hasEnoughWordsForStyleSignals && listLines >= 3 && words.length > 60) {
-      result.ai.score += 1.5;
-      aiReasons.push("structured list formatting (+1.5)");
-    }
+    return {
+      ai: { score: clamp(ai.score, 0, 20), reasons: ai.reasons },
+      botText: { score: clamp(botText.score, 0, 20), reasons: botText.reasons },
+    };
+  };
 
-    // Over-structured "Wikipedia section" vibe: many headings for a long post.
-    const headingLines = lines.filter((l) => /^#{1,6}\s+\S+/.test(l)).length;
-    if (words.length >= 350 && headingLines >= 6) {
-      result.ai.score += 1.5;
-      aiReasons.push(`heavy markdown sectioning (# headings x${headingLines}) (+1.5)`);
-    }
+  const TEXT_RULES = compileTextRules([
+    // --- AI-ish signals (heuristics, not a detector) ---
+    {
+      id: "ai.self_disclose",
+      group: "ai",
+      match: {
+        type: "regex",
+        target: "raw",
+        pattern:
+          "\\bas an ai\\b|\\bas an ai language model\\b",
+        flags: "i",
+        mode: "presence",
+      },
+      score: { mode: "fixed", value: 10 },
+      reason: "self-disclosed AI (+10)",
+    },
+    {
+      id: "ai.meta_framing",
+      group: "ai",
+      match: {
+        type: "any_regex",
+        target: "raw",
+        patterns: [
+          "(\\blet'?s\\b|\\blet me\\b).*\\b(analy[sz]e|break (?:it )?down|go through)\\b",
+          "(\\bvoy a\\b|\\bvamos a\\b).*\\b(analizar|desglosar|explicar|revisar)\\b",
+        ],
+        flags: "i",
+      },
+      when: [{ key: "$hits", op: "gte", value: 1 }],
+      score: { mode: "fixed", value: 1.5 },
+      reason: "meta 'let's analyze/break down' framing (+1.5)",
+    },
+    {
+      id: "ai.template_indicators",
+      group: "ai",
+      match: {
+        type: "any_regex",
+        target: "raw",
+        patterns: [
+          "(\\bindicators\\b|\\bsigns\\b|\\bevidence\\b)\\s+(that|of)\\b",
+          "(\\bindicadores\\b|\\bseñales\\b|\\bevidencia\\b)\\s+(de|que)\\b",
+        ],
+        flags: "i",
+      },
+      when: [{ key: "$hits", op: "gte", value: 1 }],
+      score: { mode: "fixed", value: 1 },
+      reason: "template 'signs/indicators/evidence' phrasing (+1)",
+    },
+    {
+      id: "ai.formulaic_transitions",
+      group: "ai",
+      match: {
+        type: "phrases",
+        target: "lower",
+        phrases: [
+          "in conclusion",
+          "in summary",
+          "furthermore",
+          "moreover",
+          "it is important to note",
+          "overall",
+          "ultimately",
+          // ES
+          "en conclusión",
+          "en resumen",
+          "además",
+          "por otro lado",
+          "es importante señalar",
+          "en general",
+          "en última instancia",
+        ],
+      },
+      when: [
+        { key: "hasEnoughWordsForStyleSignals", op: "eq", value: true },
+        { key: "wordCount", op: "gt", value: 40 },
+      ],
+      score: {
+        mode: "linear_clamped",
+        input: "$hits",
+        offset: 0,
+        mul: 1.2,
+        minInput: 1,
+        min: 1,
+        max: 4,
+      },
+      reason: "formulaic transitions x{hits} (+{delta})",
+      reasonDecimals: 1,
+    },
+    {
+      id: "ai.low_contractions",
+      group: "ai",
+      when: [
+        { key: "hasEnoughWordsForStyleSignals", op: "eq", value: true },
+        { key: "wordCount", op: "gt", value: 60 },
+        { key: "contractionHitCount", op: "lte", value: 1 },
+      ],
+      score: { mode: "fixed", value: 2 },
+      reason: "very low contractions (+2)",
+    },
+    {
+      id: "ai.long_uniform_sentences",
+      group: "ai",
+      when: [
+        { key: "hasEnoughWordsForStyleSignals", op: "eq", value: true },
+        { key: "sentenceCount", op: "gte", value: 4 },
+        { key: "wordCount", op: "gt", value: 80 },
+        { key: "sentenceAvgLen", op: "gte", value: 18 },
+        { key: "sentenceLenVariance", op: "lt", value: 10 },
+      ],
+      score: { mode: "fixed", value: 2 },
+      reason: "long uniform sentences (+2)",
+    },
+    {
+      id: "ai.structured_list_formatting",
+      group: "ai",
+      when: [
+        { key: "hasEnoughWordsForStyleSignals", op: "eq", value: true },
+        { key: "wordCount", op: "gt", value: 60 },
+        { key: "listLineCount", op: "gte", value: 3 },
+      ],
+      score: { mode: "fixed", value: 1.5 },
+      reason: "structured list formatting (+1.5)",
+    },
+    {
+      id: "ai.high_section_density",
+      group: "ai",
+      when: [
+        { key: "wordCount", op: "gte", value: 240 },
+        { key: "headingishLineCount", op: "gte", value: 6 },
+      ],
+      score: {
+        mode: "linear_clamped",
+        input: "headingishLineCount",
+        offset: 4,
+        mul: 0.35,
+        minInput: 6,
+        min: 1.0,
+        max: 2.5,
+      },
+      reason: "high section density x{value} (+{delta})",
+      reasonValueKey: "headingishLineCount",
+      reasonDecimals: 1,
+    },
+    {
+      id: "ai.revision_markers",
+      group: "ai",
+      when: [
+        { key: "wordCount", op: "gte", value: 200 },
+        { key: "revisionMarkerCount", op: "gte", value: 2 },
+      ],
+      score: {
+        mode: "linear_clamped",
+        input: "revisionMarkerCount",
+        offset: 0,
+        mul: 0.75,
+        minInput: 2,
+        min: 1.0,
+        max: 3.0,
+      },
+      reason: "many revision markers x{value} (+{delta})",
+      reasonValueKey: "revisionMarkerCount",
+      reasonDecimals: 1,
+    },
+    {
+      id: "ai.repeated_line_templates",
+      group: "ai",
+      when: [
+        { key: "wordCount", op: "gte", value: 220 },
+        { key: "templateMaxRepeatCount", op: "gte", value: 3 },
+      ],
+      score: {
+        mode: "linear_clamped",
+        input: "templateMaxRepeatCount",
+        offset: 2,
+        mul: 0.9,
+        minInput: 3,
+        min: 0.9,
+        max: 2.7,
+      },
+      reason: "repeated line templates max x{value} (+{delta})",
+      reasonValueKey: "templateMaxRepeatCount",
+      reasonDecimals: 1,
+    },
+    {
+      id: "ai.heavy_markdown_sectioning",
+      group: "ai",
+      when: [
+        { key: "wordCount", op: "gte", value: 350 },
+        { key: "mdHeadingCount", op: "gte", value: 6 },
+      ],
+      score: { mode: "fixed", value: 1.5 },
+      reason: "heavy markdown sectioning (# headings x{value}) (+1.5)",
+      reasonValueKey: "mdHeadingCount",
+    },
+    {
+      id: "ai.many_links",
+      group: "ai",
+      when: [
+        { key: "wordCount", op: "gte", value: 250 },
+        { key: "linkCount", op: "gte", value: 6 },
+      ],
+      score: { mode: "fixed", value: 1 },
+      reason: "many links/citations x{value} (+1)",
+      reasonValueKey: "linkCount",
+    },
+    {
+      id: "ai.high_numeric_density",
+      group: "ai",
+      when: [
+        { key: "wordCount", op: "gte", value: 280 },
+        { key: "numberTokenCount", op: "gte", value: 18 },
+      ],
+      score: { mode: "fixed", value: 0.8 },
+      reason: "high numeric density x{value} (+0.8)",
+      reasonValueKey: "numberTokenCount",
+    },
+    {
+      id: "ai.formatted_gps_coordinates",
+      group: "ai",
+      when: [{ key: "gpsCoordPresent", op: "eq", value: true }],
+      score: { mode: "fixed", value: 0.5 },
+      reason: "formatted GPS coordinates (+0.5)",
+    },
+    {
+      id: "ai.emoji_penalty",
+      group: "ai",
+      when: [{ key: "emojiPresent", op: "eq", value: true }],
+      score: { mode: "fixed", value: -1 },
+      reason: "contains emoji (-1)",
+    },
+    {
+      id: "ai.casual_markers_penalty",
+      group: "ai",
+      when: [{ key: "casualMarkerPresent", op: "eq", value: true }],
+      score: { mode: "fixed", value: -0.5 },
+      reason: "contains casual/rhetorical markers (-0.5)",
+    },
 
-    // Many outbound links in a long post can correlate with synthetic "compilation" style.
-    const citationLinkCount = (rawOriginal.match(/https?:\/\//gi) || []).length;
-    if (words.length >= 250 && citationLinkCount >= 6) {
-      result.ai.score += 1;
-      aiReasons.push(`many links/citations x${citationLinkCount} (+1)`);
-    }
+    // --- Bot-ish text signals ---
+    {
+      id: "bot.generic_short_reply",
+      group: "botText",
+      match: {
+        type: "set_in",
+        target: "shortReplyNormalized",
+        values: [
+          "lol",
+          "nice",
+          "this",
+          "this.",
+          "agreed",
+          "same",
+          "true",
+          "exactly",
+          "thanks",
+        ],
+      },
+      when: [{ key: "wordCount", op: "lte", value: 3 }],
+      score: { mode: "fixed", value: 2 },
+      reason: "generic very short reply (+2)",
+    },
+    {
+      id: "bot.suspicious_tld",
+      group: "botText",
+      when: [{ key: "suspiciousTldPresent", op: "eq", value: true }],
+      score: { mode: "fixed", value: 4 },
+      reason: "suspicious TLD in text (+4)",
+    },
+    {
+      id: "bot.multiple_links",
+      group: "botText",
+      when: [{ key: "linkCount", op: "gte", value: 2 }],
+      score: { mode: "fixed", value: 2 },
+      reason: "multiple links (+2)",
+    },
+    {
+      id: "bot.near_duplicate_same_user",
+      group: "botText",
+      match: { type: "per_user_near_duplicate", minLen: 24 },
+      when: [{ key: "$hits", op: "gte", value: 1 }],
+      score: { mode: "fixed", value: 2 },
+      reason: "repeated near-duplicate message by same user (+2)",
+    },
+  ]);
 
-    // Coordinates / overly precise geodata formatting (weak signal, but common in synthetic writeups)
-    if (/\b\d{1,2}°\d{2}'\d{2}"[NS]\b.*\b\d{1,3}°\d{2}'\d{2}"[EW]\b/i.test(rawOriginal)) {
-      result.ai.score += 0.5;
-      aiReasons.push("formatted GPS coordinates (+0.5)");
-    }
-
-    // Emoji penalty: content with emojis tends to be more human; reduce AI suspicion.
-    if (/([\uD83C-\uDBFF][\uDC00-\uDFFF])/.test(rawOriginal)) {
-      result.ai.score -= 1;
-      aiReasons.push("contains emoji (-1)");
-    }
-
-    // Mild human cues: rhetorical questions / casual markers can reduce AI suspicion a bit.
-    if (/(\?\s*$)|\b(?:lol|lmao|tbh|imo|imho|jaja|jajaja)\b/i.test(rawOriginal)) {
-      result.ai.score -= 0.5;
-      aiReasons.push("contains casual/rhetorical markers (-0.5)");
-    }
-
-    // ---- Bot-ish text signals ----
-    const botReasons = result.botText.reasons;
-    const shortReplies = new Set([
-      "lol",
-      "nice",
-      "this",
-      "this.",
-      "agreed",
-      "same",
-      "true",
-      "exactly",
-      "thanks",
-    ]);
-    if (words.length <= 3 && shortReplies.has(lower.replace(/[^a-z.]/g, ""))) {
-      result.botText.score += 2;
-      botReasons.push("generic very short reply (+2)");
-    }
-
-    const linkCount = (raw.match(/https?:\/\//gi) || []).length;
-    const suspiciousTld = /\.(?:xyz|top|click|buzz|live|shop|online|site|store)\b/i;
-    if (suspiciousTld.test(raw)) {
-      result.botText.score += 4;
-      botReasons.push("suspicious TLD in text (+4)");
-    }
-    if (linkCount >= 2) {
-      result.botText.score += 2;
-      botReasons.push("multiple links (+2)");
-    }
-
-    if (perUserHistory) {
-      const norm = normalizeForNearDuplicate(rawOriginal);
-      if (norm.length >= 24) {
-        const prev = perUserHistory.get(norm) || 0;
-        if (prev >= 1) {
-          result.botText.score += 2;
-          botReasons.push("repeated near-duplicate message by same user (+2)");
-        }
-        perUserHistory.set(norm, prev + 1);
-      }
-    }
-
-    result.ai.score = clamp(result.ai.score, 0, 20);
-    result.botText.score = clamp(result.botText.score, 0, 20);
-    return result;
+  const scoreTextSignals = (text, { perUserHistory } = {}) => {
+    const rawOriginal = String(text ?? "");
+    const features = buildTextFeatures({ rawOriginal, perUserHistory });
+    return runDeclarativeTextRules(TEXT_RULES, features);
   };
 
   const classify = ({ botScore, aiScore, profileScore }) => {
@@ -638,13 +1100,23 @@
       return "unknown";
     })();
 
-    const emoji =
-      kind === "bot" ? "🤖" : kind === "ai" ? "🧠" : kind === "human" ? "✅" : "❓";
+    const emoji = (() => {
+      switch (kind) {
+        case "bot":
+          return "🤖";
+        case "ai":
+          return "🧠";
+        case "human":
+          return "✅";
+        default:
+          return "❓";
+      }
+    })();
 
     return { kind, emoji };
   };
 
-  const createRedditBotBuster = ({ win, doc, fetchFn }) => {
+  const createRedditSlopSleuth = ({ win, doc, fetchFn }) => {
     const state = {
       open: false,
       selectedEntryId: null,
@@ -808,31 +1280,31 @@
 
       const root = doc.createElement("div");
       root.id = UI_ROOT_ID;
-      root.className = "rbb-fixed rbb-bottom-4 rbb-right-4";
+      root.className = "rss-fixed rss-bottom-4 rss-right-4";
 
       const gearBtn = doc.createElement("button");
-      gearBtn.className = "rbb-gear rbb-select-none rbb-cursor-pointer rbb-focus-ring";
+      gearBtn.className = "rss-gear rss-select-none rss-cursor-pointer rss-focus-ring";
       gearBtn.type = "button";
-      gearBtn.title = "RedditBotBuster";
+      gearBtn.title = "RedditSlopSleuth";
       gearBtn.textContent = "⚙️";
 
       const overlay = doc.createElement("div");
-      overlay.className = "rbb-fixed rbb-inset-0 rbb-overlay";
+      overlay.className = "rss-fixed rss-inset-0 rss-overlay";
       overlay.style.display = "none";
 
       const drawer = doc.createElement("div");
-      drawer.className = "rbb-fixed rbb-top-0 rbb-right-0 rbb-w-96 rbb-drawer";
+      drawer.className = "rss-fixed rss-top-0 rss-right-0 rss-w-96 rss-drawer";
       drawer.style.display = "none";
       drawer.setAttribute("role", "dialog");
-      drawer.setAttribute("aria-label", "RedditBotBuster");
+      drawer.setAttribute("aria-label", "RedditSlopSleuth");
 
       const tooltip = doc.createElement("div");
-      tooltip.className = "rbb-tooltip";
+      tooltip.className = "rss-tooltip";
       doc.body.appendChild(tooltip);
       state.tooltipEl = tooltip;
 
       const popover = doc.createElement("div");
-      popover.className = "rbb-popover";
+      popover.className = "rss-popover";
       doc.body.appendChild(popover);
       state.popoverEl = popover;
 
@@ -852,46 +1324,46 @@
         drawer.innerHTML = "";
 
         const header = doc.createElement("div");
-        header.className = "rbb-flex rbb-justify-between rbb-items-center rbb-p-4";
+        header.className = "rss-flex rss-justify-between rss-items-center rss-p-4";
         header.innerHTML = `
           <div>
-            <div class="rbb-font-bold rbb-text-base">RedditBotBuster</div>
-            <div class="rbb-text-sm rbb-muted">Badges: ${counts.bot} 🤖 · ${counts.ai} 🧠 · ${counts.human} ✅ · ${counts.unknown} ❓</div>
+            <div class="rss-font-bold rss-text-base">RedditSlopSleuth</div>
+            <div class="rss-text-sm rss-muted">Badges: ${counts.bot} 🤖 · ${counts.ai} 🧠 · ${counts.human} ✅ · ${counts.unknown} ❓</div>
           </div>
         `;
 
         const closeBtn = doc.createElement("button");
         closeBtn.type = "button";
-        closeBtn.className = "rbb-btn rbb-cursor-pointer rbb-focus-ring";
+        closeBtn.className = "rss-btn rss-cursor-pointer rss-focus-ring";
         closeBtn.textContent = "Close";
         closeBtn.addEventListener("click", () => setOpen(false));
         header.appendChild(closeBtn);
 
         const body = doc.createElement("div");
-        body.className = "rbb-p-4 rbb-flex rbb-flex-col rbb-gap-3 rbb-overflow-auto rbb-max-h-80vh";
+        body.className = "rss-p-4 rss-flex rss-flex-col rss-gap-3 rss-overflow-auto rss-max-h-80vh";
 
         const details = doc.createElement("div");
-        details.className = "rbb-row";
+        details.className = "rss-row";
 
         if (!selected) {
-          details.innerHTML = `<div class="rbb-font-semibold">Click a badge</div><div class="rbb-text-sm rbb-muted">Click 🤖/🧠/✅/❓ next to a username to see why.</div>`;
+          details.innerHTML = `<div class="rss-font-semibold">Click a badge</div><div class="rss-text-sm rss-muted">Click 🤖/🧠/✅/❓ next to a username to see why.</div>`;
         } else {
           const pill = (label, value) => {
             const p = doc.createElement("span");
-            p.className = "rbb-pill";
-            p.innerHTML = `<span class="rbb-muted">${label}</span><span class="rbb-font-semibold">${value}</span>`;
+            p.className = "rss-pill";
+            p.innerHTML = `<span class="rss-muted">${label}</span><span class="rss-font-semibold">${value}</span>`;
             return p;
           };
 
           const top = doc.createElement("div");
-          top.className = "rbb-flex rbb-flex-col rbb-gap-2";
+          top.className = "rss-flex rss-flex-col rss-gap-2";
           const title = doc.createElement("div");
-          title.className = "rbb-font-bold rbb-text-base";
+          title.className = "rss-font-bold rss-text-base";
           title.textContent = `${selected.classification.emoji} u/${selected.username}`;
           top.appendChild(title);
 
           const pills = doc.createElement("div");
-          pills.className = "rbb-flex rbb-gap-2";
+          pills.className = "rss-flex rss-gap-2";
           pills.appendChild(pill("Bot", selected.scores.bot.toFixed(1)));
           pills.appendChild(pill("AI", selected.scores.ai.toFixed(1)));
           pills.appendChild(pill("Profile", selected.scores.profile.toFixed(1)));
@@ -899,7 +1371,7 @@
 
           const why = doc.createElement("div");
           const whyList = doc.createElement("ul");
-          whyList.className = "rbb-why";
+          whyList.className = "rss-why";
 
           const reasons = [
             ...selected.reasons.bot,
@@ -914,10 +1386,10 @@
           why.appendChild(whyList);
 
           const btnRow = doc.createElement("div");
-          btnRow.className = "rbb-flex rbb-gap-2";
+          btnRow.className = "rss-flex rss-gap-2";
           const scrollBtn = doc.createElement("button");
           scrollBtn.type = "button";
-          scrollBtn.className = "rbb-btn rbb-btn-primary rbb-focus-ring";
+          scrollBtn.className = "rss-btn rss-btn-primary rss-focus-ring";
           scrollBtn.textContent = "Scroll to item";
           scrollBtn.addEventListener("click", () => {
             selected.element?.scrollIntoView?.({ behavior: "smooth", block: "center" });
@@ -931,26 +1403,26 @@
         }
 
         const list = doc.createElement("div");
-        list.className = "rbb-row";
+        list.className = "rss-row";
         const listTitle = doc.createElement("div");
-        listTitle.className = "rbb-font-semibold";
+        listTitle.className = "rss-font-semibold";
         listTitle.textContent = "Recent";
         list.appendChild(listTitle);
 
         const listBody = doc.createElement("div");
-        listBody.className = "rbb-flex rbb-flex-col rbb-gap-2";
+        listBody.className = "rss-flex rss-flex-col rss-gap-2";
 
         const entries = Array.from(state.entries.values()).slice(-30).reverse();
         if (entries.length === 0) {
           const empty = doc.createElement("div");
-          empty.className = "rbb-text-sm rbb-muted";
+          empty.className = "rss-text-sm rss-muted";
           empty.textContent = "Nothing analyzed yet.";
           listBody.appendChild(empty);
         } else {
           for (const e of entries) {
             const row = doc.createElement("div");
-            row.className = "rbb-row rbb-hover-bg rbb-cursor-pointer";
-            row.innerHTML = `<div class="rbb-flex rbb-justify-between rbb-items-center"><div class="rbb-font-semibold">${e.classification.emoji} u/${e.username}</div><div class="rbb-text-sm rbb-muted">Bot ${e.scores.bot.toFixed(1)} · AI ${e.scores.ai.toFixed(1)}</div></div>`;
+            row.className = "rss-row rss-hover-bg rss-cursor-pointer";
+            row.innerHTML = `<div class="rss-flex rss-justify-between rss-items-center"><div class="rss-font-semibold">${e.classification.emoji} u/${e.username}</div><div class="rss-text-sm rss-muted">Bot ${e.scores.bot.toFixed(1)} · AI ${e.scores.ai.toFixed(1)}</div></div>`;
             row.addEventListener("click", () => {
               state.selectedEntryId = e.id;
               render();
@@ -1070,17 +1542,21 @@
         ...entry.reasons.profile,
       ].slice(0, 12);
 
-      const escapeHtml = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const escapeHtml = (s) =>
+        String(s ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
       pop.innerHTML = `
-        <div class="rbb-popover-header">
-          <div class="rbb-popover-title">${entry.classification.emoji} u/${entry.username}</div>
-          <button type="button" class="rbb-popover-close" aria-label="Close">✕</button>
+        <div class="rss-popover-header">
+          <div class="rss-popover-title">${entry.classification.emoji} u/${entry.username}</div>
+          <button type="button" class="rss-popover-close" aria-label="Close">✕</button>
         </div>
-        <div class="rbb-text-sm rbb-muted" style="margin-bottom:8px">Bot ${entry.scores.bot.toFixed(1)} · AI ${entry.scores.ai.toFixed(1)} · Profile ${entry.scores.profile.toFixed(1)}</div>
-        <ul class="rbb-why">${reasons.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>
+        <div class="rss-text-sm rss-muted" style="margin-bottom:8px">Bot ${entry.scores.bot.toFixed(1)} · AI ${entry.scores.ai.toFixed(1)} · Profile ${entry.scores.profile.toFixed(1)}</div>
+        <ul class="rss-why">${reasons.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>
       `;
 
-      pop.querySelector(".rbb-popover-close")?.addEventListener("click", (e) => {
+      pop.querySelector(".rss-popover-close")?.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
         pop.style.display = "none";
@@ -1092,7 +1568,12 @@
       state.activePopoverEntryId = entry.id;
 
       const margin = 12;
-      const rect = badgeEl?.getBoundingClientRect?.() || { left: margin, top: margin, right: margin, bottom: margin };
+      const rect = badgeEl?.getBoundingClientRect?.() || {
+        left: margin,
+        top: margin,
+        right: margin,
+        bottom: margin,
+      };
       const popRect = pop.getBoundingClientRect();
       const w = popRect.width || 320;
       const h = popRect.height || 200;
@@ -1159,6 +1640,13 @@
         return;
       }
 
+      // Avoid inserting the badge inside a link; Reddit may treat the whole author row as navigable.
+      const link = authorEl?.closest?.("a[href]");
+      if (link) {
+        link.insertAdjacentElement("afterend", badgeEl);
+        return;
+      }
+
       // Subreddit/post headers: keep name+badge together inside nowrap span to avoid line wraps.
       const nowrap = authorEl?.querySelector?.(".whitespace-nowrap");
       if (nowrap) {
@@ -1209,9 +1697,9 @@
       }
 
       const badge = doc.createElement("span");
-      badge.className = "rbb-badge";
+      badge.className = "rss-badge";
       badge.setAttribute(BADGE_ATTR, "true");
-      badge.setAttribute("data-rbb-kind", "unknown");
+      badge.setAttribute("data-rss-kind", "unknown");
       badge.textContent = "❓";
 
       const entryId = makeId();
@@ -1224,13 +1712,13 @@
 
       const updateBadgeFromEntry = (entry) => {
         badge.textContent = entry.classification.emoji;
-        badge.setAttribute("data-rbb-kind", entry.classification.kind);
+        badge.setAttribute("data-rss-kind", entry.classification.kind);
 
         const hoverLines = [
           `<div style="font-weight:700;margin-bottom:6px">${entry.classification.emoji} u/${entry.username}</div>`,
           `<div><b>Bot</b>: ${entry.scores.bot.toFixed(1)} · <b>AI</b>: ${entry.scores.ai.toFixed(1)} · <b>Profile</b>: ${entry.scores.profile.toFixed(1)}</div>`,
         ];
-        badge.dataset.rbbTooltip = hoverLines.join("");
+        badge.dataset.rssTooltip = hoverLines.join("");
       };
 
       const entry = {
@@ -1278,7 +1766,7 @@
           return;
         }
 
-        const html = badge.dataset.rbbTooltip;
+        const html = badge.dataset.rssTooltip;
         if (!html) return;
         setTooltip({ x: e.pageX, y: e.pageY, html, show: true });
       });
@@ -1293,7 +1781,7 @@
 
       badge.addEventListener("pointermove", (e) => {
         if (hoverEnabled) return;
-        const html = badge.dataset.rbbTooltip;
+        const html = badge.dataset.rssTooltip;
         if (!html) return;
         setTooltip({ x: e.pageX, y: e.pageY, html, show: true });
       });
@@ -1307,19 +1795,25 @@
     };
 
     const extractText = (container) => {
+      const normalize = (s) =>
+        String(s ?? "")
+          .replace(/\r\n/g, "\n")
+          .trim()
+          .replace(/\n{3,}/g, "\n\n");
+
       for (const sel of SELECTORS.text) {
         const node = container.querySelector(sel);
-        const txt = compactWs(safeText(node));
+        const txt = normalize(safeText(node));
         if (txt) return txt;
       }
 
       // Fallback: paragraphs.
       const ps = Array.from(container.querySelectorAll("p"));
-      const para = compactWs(ps.map((p) => safeText(p)).join("\n"));
+      const para = normalize(ps.map((p) => safeText(p)).join("\n"));
       if (para) return para;
 
       // Final fallback: container text.
-      return compactWs(safeText(container));
+      return normalize(safeText(container));
     };
 
     const scanRoot = async (root) => {
@@ -1420,7 +1914,7 @@
         }
 
         // Skip injecting into our own UI.
-        if (node.closest?.(`#${UI_ROOT_ID}, .rbb-drawer, .rbb-overlay, .rbb-tooltip, .rbb-popover`)) {
+        if (node.closest?.(`#${UI_ROOT_ID}, .rss-drawer, .rss-overlay, .rss-tooltip, .rss-popover`)) {
           continue;
         }
 
@@ -1474,8 +1968,8 @@
             for (const badgeEl of badges) {
               if (badgeEl.getAttribute(ENTRY_ID_ATTR) !== entry.id) continue;
               badgeEl.textContent = entry.classification.emoji;
-              badgeEl.setAttribute("data-rbb-kind", entry.classification.kind);
-              badgeEl.dataset.rbbTooltip = `
+              badgeEl.setAttribute("data-rss-kind", entry.classification.kind);
+              badgeEl.dataset.rssTooltip = `
                 <div style="font-weight:700;margin-bottom:6px">${entry.classification.emoji} u/${entry.username}</div>
                 <div><b>Bot</b>: ${entry.scores.bot.toFixed(1)} · <b>AI</b>: ${entry.scores.ai.toFixed(1)} · <b>Profile</b>: ${entry.scores.profile.toFixed(1)}</div>
               `;
@@ -1532,13 +2026,13 @@
   // Export for tests.
   /* c8 ignore start */
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { createRedditBotBuster };
+    module.exports = { createRedditSlopSleuth };
   }
   /* c8 ignore stop */
 
   if (typeof window === "undefined" || typeof document === "undefined") return;
   if (!document.body) return;
 
-  const engine = createRedditBotBuster({ win: window, doc: document, fetchFn: window.fetch });
+  const engine = createRedditSlopSleuth({ win: window, doc: document, fetchFn: window.fetch });
   engine.start();
 })();
