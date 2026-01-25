@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RedditSlopSleuth
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.17
+// @version      0.1.18
 // @description  Heuristic bot/AI slop indicator for Reddit with per-user badges and a details side panel.
 // @author       Toni Oriol
 // @match        *://www.reddit.com/*
@@ -570,6 +570,7 @@
   const buildTextFeatures = ({ rawOriginal, perUserHistory }) => {
     const raw = compactWs(rawOriginal);
     const lower = raw.toLowerCase();
+    const lowerAposNormalized = lower.replace(/[\u2019\u2018\u02BC]/g, "'");
     const words = raw ? raw.split(/\s+/).filter(Boolean) : [];
     const wordCount = words.length;
     const lines = rawOriginal.split(/\r?\n/).map((l) => String(l ?? "").trim());
@@ -594,13 +595,21 @@
     const numberTokenCount = (rawOriginal.match(/\b\d+(?:[.,]\d+)?\b/g) || []).length;
 
     const emojiPresent = /([\uD83C-\uDBFF][\uDC00-\uDFFF])/.test(rawOriginal);
-    const casualMarkerPresent =
-      /(\?\s*$)|\b(?:lol|lmao|tbh|imo|imho|jaja|jajaja)\b/i.test(rawOriginal);
+    const questionMarkTerminal = /\?\s*$/.test(rawOriginal);
+    const casualMarkerPresent = /\b(?:lol|lmao|tbh|imo|imho|jaja|jajaja)\b/i.test(
+      rawOriginal
+    );
     const gpsCoordPresent =
       /\b\d{1,2}°\d{2}'\d{2}"[NS]\b.*\b\d{1,3}°\d{2}'\d{2}"[EW]\b/i.test(rawOriginal);
     const suspiciousTldPresent = /\.(?:xyz|top|click|buzz|live|shop|online|site|store)\b/i.test(raw);
-    const contractionHitCount =
-      (lower.match(/\b(i'm|you're|we're|they're|can't|won't|didn't|isn't|it's)\b/g) || []).length;
+    // Note: avoid multi-line regex literals because they can't contain unescaped newlines.
+    // We normalize smart apostrophes (’ etc.) to ASCII (').
+    const contractionHitCount = (
+      lowerAposNormalized.match(
+        /\b(?:i'(?:m|ve|ll|d)|you'(?:re|ve|ll|d)|we'(?:re|ve|ll|d)|they'(?:re|ve|ll|d)|he'(?:s|ll|d)|she'(?:s|ll|d)|it'(?:s|ll|d)|that'(?:s|ll|d)|there's|here's|what's|who's|let's|y'all|[a-z]+n't)\b/g
+      ) || []
+    ).length;
+    const contractionsPer100Words = wordCount > 0 ? (contractionHitCount / wordCount) * 100 : 0;
     const listLineCount = nonEmptyLines.filter((l) => /^(?:[-*•]\s+|\d+\.)/.test(l)).length;
     const mdHeadingCount = nonEmptyLines.filter((l) => /^#{1,6}\s+\S+/.test(l)).length;
     const headingishLineCount = nonEmptyLines.filter(isHeadingishLine).length;
@@ -637,10 +646,12 @@
       linkCount,
       numberTokenCount,
       emojiPresent,
+      questionMarkTerminal,
       casualMarkerPresent,
       gpsCoordPresent,
       suspiciousTldPresent,
       contractionHitCount,
+      contractionsPer100Words,
       listLineCount,
       mdHeadingCount,
       headingishLineCount,
@@ -838,7 +849,8 @@
     }
 
     return {
-      ai: { score: clamp(ai.score, 0, 20), reasons: ai.reasons },
+      // Allow small negative deltas so human-ish markers can contribute to the overall/human verdict.
+      ai: { score: clamp(ai.score, -5, 20), reasons: ai.reasons },
       botText: { score: clamp(botText.score, 0, 20), reasons: botText.reasons },
     };
   };
@@ -937,7 +949,10 @@
       when: [
         { key: "hasEnoughWordsForStyleSignals", op: "eq", value: true },
         { key: "wordCount", op: "gt", value: 60 },
-        { key: "contractionHitCount", op: "lte", value: 1 },
+        // Use a rate instead of an absolute count. This avoids flagging long posts that contain
+        // a couple of contractions, while still catching very formal / model-ish prose.
+        { key: "contractionsPer100Words", op: "lte", value: 0.8 },
+        { key: "contractionHitCount", op: "lte", value: 2 },
       ],
       score: { mode: "fixed", value: 2 },
       reason: "very low contractions (+2)",
@@ -1080,6 +1095,16 @@
       score: { mode: "fixed", value: -0.5 },
       reason: "contains casual/rhetorical markers (-0.5)",
     },
+    {
+      id: "ai.short_question_penalty",
+      group: "ai",
+      when: [
+        { key: "questionMarkTerminal", op: "eq", value: true },
+        { key: "wordCount", op: "lte", value: 30 },
+      ],
+      score: { mode: "fixed", value: -0.3 },
+      reason: "short question-style message (-0.3)",
+    },
 
     // --- Bot-ish text signals ---
     {
@@ -1134,12 +1159,15 @@
     return runDeclarativeTextRules(TEXT_RULES, features);
   };
 
+  // `botScore` is the bot-ish score *excluding* profile (username + botText).
+  // `profileScore` is kept separate so we can show it independently and avoid double counting.
   const classify = ({ botScore, aiScore, profileScore }) => {
+    const botTotal = Number(botScore) + Number(profileScore);
     const kind = (() => {
-      if (botScore >= HARD_CODED_THRESHOLDS.bot) return "bot";
+      if (botTotal >= HARD_CODED_THRESHOLDS.bot) return "bot";
       if (aiScore >= HARD_CODED_THRESHOLDS.ai) return "ai";
 
-      const combined = botScore + aiScore + profileScore;
+      const combined = botTotal + aiScore;
       if (combined <= HARD_CODED_THRESHOLDS.human) return "human";
 
       return "unknown";
@@ -1910,11 +1938,12 @@
       const profile = await getUserProfile(username);
       const profileScore = scoreProfile(profile);
 
-      const botScore = nameScore.score + textScore.botText.score + profileScore.score;
+      const botBaseScore = nameScore.score + textScore.botText.score;
+      const botScore = botBaseScore + profileScore.score;
       const aiScore = textScore.ai.score;
 
       const classification = classify({
-        botScore,
+        botScore: botBaseScore,
         aiScore,
         profileScore: profileScore.score,
       });
