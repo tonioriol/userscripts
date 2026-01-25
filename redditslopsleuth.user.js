@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RedditSlopSleuth
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.13
+// @version      0.1.16
 // @description  Heuristic bot/AI slop indicator for Reddit with per-user badges and a details side panel.
 // @author       Toni Oriol
 // @match        *://www.reddit.com/*
@@ -95,6 +95,16 @@
         --rss-red: #dc2626;
         --rss-purple: #7c3aed;
         --rss-green: #16a34a;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --rss-bg: rgba(17,24,39,0.92);
+          --rss-border: rgba(255,255,255,0.14);
+          --rss-shadow: 0 12px 32px rgba(0,0,0,0.55);
+          --rss-text: #f9fafb;
+          --rss-muted: #9ca3af;
+        }
       }
 
       /* Utilities */
@@ -203,6 +213,41 @@
         font-size: 12px;
         background: rgba(255,255,255,0.7);
       }
+
+      @media (prefers-color-scheme: dark) {
+        .rss-pill { background: rgba(17,24,39,0.55); }
+        .rss-row { background: rgba(17,24,39,0.55); }
+        .rss-badge { background: rgba(17,24,39,0.75); }
+        .rss-popover { background: rgba(17,24,39,0.96); }
+      }
+
+      /* Meters */
+      .rss-meters { display: flex; flex-direction: column; gap: 10px; }
+      .rss-meter-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 12px;
+        color: var(--rss-muted);
+      }
+      .rss-meter-track {
+        position: relative;
+        height: 8px;
+        border-radius: 9999px;
+        border: 1px solid var(--rss-border);
+        background: rgba(0,0,0,0.08);
+        overflow: hidden;
+      }
+      .rss-meter-fill {
+        height: 100%;
+        width: 0%;
+        border-radius: 9999px;
+        background: var(--rss-blue);
+      }
+      .rss-meter-fill[data-rss-meter="bot"] { background: var(--rss-red); }
+      .rss-meter-fill[data-rss-meter="ai"] { background: var(--rss-purple); }
+      .rss-meter-fill[data-rss-meter="overall"] { background: var(--rss-blue); }
 
       .rss-btn {
         border: 1px solid var(--rss-border);
@@ -1116,6 +1161,25 @@
     return { kind, emoji };
   };
 
+  const fmtScore = (n, { decimals = 1, signed = false } = {}) => {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return String(n);
+    const s = v.toFixed(decimals);
+    if (!signed) return s;
+    return v > 0 ? `+${s}` : s;
+  };
+
+  const ratioToThreshold = (score, threshold) => {
+    const s = Number(score);
+    const t = Number(threshold);
+    if (!Number.isFinite(s) || !Number.isFinite(t) || t <= 0) return 0;
+    return clamp(s / t, 0, 1);
+  };
+
+  const fmtThresholdProgress = (score, threshold) => {
+    return `${fmtScore(score)} / ${threshold}`;
+  };
+
   const createRedditSlopSleuth = ({ win, doc, fetchFn }) => {
     const state = {
       open: false,
@@ -1308,7 +1372,7 @@
       doc.body.appendChild(popover);
       state.popoverEl = popover;
 
-      const render = () => {
+        const render = () => {
         const selected = state.selectedEntryId
           ? state.entries.get(state.selectedEntryId)
           : null;
@@ -1362,12 +1426,84 @@
           title.textContent = `${selected.classification.emoji} u/${selected.username}`;
           top.appendChild(title);
 
+          const verdict = doc.createElement("div");
+          verdict.className = "rss-text-sm rss-muted";
+          verdict.textContent = `Verdict: ${selected.classification.kind}`;
+          top.appendChild(verdict);
+
           const pills = doc.createElement("div");
           pills.className = "rss-flex rss-gap-2";
-          pills.appendChild(pill("Bot", selected.scores.bot.toFixed(1)));
-          pills.appendChild(pill("AI", selected.scores.ai.toFixed(1)));
-          pills.appendChild(pill("Profile", selected.scores.profile.toFixed(1)));
+          pills.appendChild(pill("Bot", fmtThresholdProgress(selected.scores.bot, HARD_CODED_THRESHOLDS.bot)));
+          pills.appendChild(pill("AI", fmtThresholdProgress(selected.scores.ai, HARD_CODED_THRESHOLDS.ai)));
+          pills.appendChild(pill("Profile", fmtScore(selected.scores.profile, { signed: true })));
           top.appendChild(pills);
+
+          const meters = doc.createElement("div");
+          meters.className = "rss-meters";
+
+          const makeMeter = ({ label, value, threshold, meterKind }) => {
+            const pct = Math.round(ratioToThreshold(value, threshold) * 100);
+            const wrap = doc.createElement("div");
+            const row = doc.createElement("div");
+            row.className = "rss-meter-row";
+            row.innerHTML = `<span>${label}</span><span>${fmtThresholdProgress(value, threshold)}</span>`;
+
+            const track = doc.createElement("div");
+            track.className = "rss-meter-track";
+            const fill = doc.createElement("div");
+            fill.className = "rss-meter-fill";
+            fill.setAttribute("data-rss-meter", meterKind);
+            fill.style.width = `${pct}%`;
+            track.appendChild(fill);
+
+            wrap.appendChild(row);
+            wrap.appendChild(track);
+            return wrap;
+          };
+
+          const botRatio = ratioToThreshold(selected.scores.bot, HARD_CODED_THRESHOLDS.bot);
+          const aiRatio = ratioToThreshold(selected.scores.ai, HARD_CODED_THRESHOLDS.ai);
+          const overallRatio = Math.max(botRatio, aiRatio);
+
+          // Overall is the max of "how close are we" to either bot/AI thresholds.
+          meters.appendChild(
+            (() => {
+              const pct = Math.round(overallRatio * 100);
+              const wrap = doc.createElement("div");
+              const row = doc.createElement("div");
+              row.className = "rss-meter-row";
+              row.innerHTML = `<span>Overall</span><span>${pct}%</span>`;
+              const track = doc.createElement("div");
+              track.className = "rss-meter-track";
+              const fill = doc.createElement("div");
+              fill.className = "rss-meter-fill";
+              fill.setAttribute("data-rss-meter", "overall");
+              fill.style.width = `${pct}%`;
+              track.appendChild(fill);
+              wrap.appendChild(row);
+              wrap.appendChild(track);
+              return wrap;
+            })()
+          );
+
+          meters.appendChild(
+            makeMeter({
+              label: "Bot",
+              value: selected.scores.bot,
+              threshold: HARD_CODED_THRESHOLDS.bot,
+              meterKind: "bot",
+            })
+          );
+          meters.appendChild(
+            makeMeter({
+              label: "AI",
+              value: selected.scores.ai,
+              threshold: HARD_CODED_THRESHOLDS.ai,
+              meterKind: "ai",
+            })
+          );
+
+          top.appendChild(meters);
 
           const why = doc.createElement("div");
           const whyList = doc.createElement("ul");
@@ -1422,7 +1558,7 @@
           for (const e of entries) {
             const row = doc.createElement("div");
             row.className = "rss-row rss-hover-bg rss-cursor-pointer";
-            row.innerHTML = `<div class="rss-flex rss-justify-between rss-items-center"><div class="rss-font-semibold">${e.classification.emoji} u/${e.username}</div><div class="rss-text-sm rss-muted">Bot ${e.scores.bot.toFixed(1)} · AI ${e.scores.ai.toFixed(1)}</div></div>`;
+            row.innerHTML = `<div class="rss-flex rss-justify-between rss-items-center"><div class="rss-font-semibold">${e.classification.emoji} u/${e.username}</div><div class="rss-text-sm rss-muted">Bot ${fmtThresholdProgress(e.scores.bot, HARD_CODED_THRESHOLDS.bot)} · AI ${fmtThresholdProgress(e.scores.ai, HARD_CODED_THRESHOLDS.ai)}</div></div>`;
             row.addEventListener("click", () => {
               state.selectedEntryId = e.id;
               render();
@@ -1527,7 +1663,7 @@
       t.style.display = "block";
     };
 
-    const setPopover = ({ badgeEl, entry, show }) => {
+      const setPopover = ({ badgeEl, entry, show }) => {
       const pop = state.popoverEl;
       if (!pop) return;
       if (!show || !entry) {
@@ -1547,12 +1683,36 @@
           .replace(/&/g, "&amp;")
           .replace(/</g, "&lt;")
           .replace(/>/g, "&gt;");
+      const botRatio = ratioToThreshold(entry.scores.bot, HARD_CODED_THRESHOLDS.bot);
+      const aiRatio = ratioToThreshold(entry.scores.ai, HARD_CODED_THRESHOLDS.ai);
+      const overallRatio = Math.max(botRatio, aiRatio);
+      const overallPct = Math.round(overallRatio * 100);
+      const botPct = Math.round(botRatio * 100);
+      const aiPct = Math.round(aiRatio * 100);
+
       pop.innerHTML = `
         <div class="rss-popover-header">
           <div class="rss-popover-title">${entry.classification.emoji} u/${entry.username}</div>
           <button type="button" class="rss-popover-close" aria-label="Close">✕</button>
         </div>
-        <div class="rss-text-sm rss-muted" style="margin-bottom:8px">Bot ${entry.scores.bot.toFixed(1)} · AI ${entry.scores.ai.toFixed(1)} · Profile ${entry.scores.profile.toFixed(1)}</div>
+        <div class="rss-text-sm rss-muted" style="margin-bottom:6px">Verdict: ${entry.classification.kind}</div>
+        <div class="rss-text-sm rss-muted" style="margin-bottom:8px">Bot ${fmtThresholdProgress(entry.scores.bot, HARD_CODED_THRESHOLDS.bot)} · AI ${fmtThresholdProgress(entry.scores.ai, HARD_CODED_THRESHOLDS.ai)} · Profile ${fmtScore(entry.scores.profile, { signed: true })}</div>
+
+        <div class="rss-meters" style="margin-bottom:10px">
+          <div>
+            <div class="rss-meter-row"><span>Overall</span><span>${overallPct}%</span></div>
+            <div class="rss-meter-track"><div class="rss-meter-fill" data-rss-meter="overall" style="width:${overallPct}%"></div></div>
+          </div>
+          <div>
+            <div class="rss-meter-row"><span>Bot</span><span>${escapeHtml(fmtThresholdProgress(entry.scores.bot, HARD_CODED_THRESHOLDS.bot))}</span></div>
+            <div class="rss-meter-track"><div class="rss-meter-fill" data-rss-meter="bot" style="width:${botPct}%"></div></div>
+          </div>
+          <div>
+            <div class="rss-meter-row"><span>AI</span><span>${escapeHtml(fmtThresholdProgress(entry.scores.ai, HARD_CODED_THRESHOLDS.ai))}</span></div>
+            <div class="rss-meter-track"><div class="rss-meter-fill" data-rss-meter="ai" style="width:${aiPct}%"></div></div>
+          </div>
+        </div>
+
         <ul class="rss-why">${reasons.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>
       `;
 
@@ -1678,6 +1838,16 @@
 
       return {
         scores: { bot: botScore, ai: aiScore, profile: profileScore.score },
+        breakdown: {
+          bot: {
+            username: nameScore.score,
+            text: textScore.botText.score,
+            profile: profileScore.score,
+          },
+          ai: {
+            text: textScore.ai.score,
+          },
+        },
         reasons: {
           bot: [...nameScore.reasons, ...textScore.botText.reasons],
           ai: [...textScore.ai.reasons],
@@ -1716,7 +1886,8 @@
 
         const hoverLines = [
           `<div style="font-weight:700;margin-bottom:6px">${entry.classification.emoji} u/${entry.username}</div>`,
-          `<div><b>Bot</b>: ${entry.scores.bot.toFixed(1)} · <b>AI</b>: ${entry.scores.ai.toFixed(1)} · <b>Profile</b>: ${entry.scores.profile.toFixed(1)}</div>`,
+          `<div style="margin-bottom:4px"><b>Verdict</b>: ${entry.classification.kind}</div>`,
+          `<div><b>Bot</b>: ${fmtThresholdProgress(entry.scores.bot, HARD_CODED_THRESHOLDS.bot)} · <b>AI</b>: ${fmtThresholdProgress(entry.scores.ai, HARD_CODED_THRESHOLDS.ai)} · <b>Profile</b>: ${fmtScore(entry.scores.profile, { signed: true })}</div>`,
         ];
         badge.dataset.rssTooltip = hoverLines.join("");
       };
@@ -1969,9 +2140,11 @@
               if (badgeEl.getAttribute(ENTRY_ID_ATTR) !== entry.id) continue;
               badgeEl.textContent = entry.classification.emoji;
               badgeEl.setAttribute("data-rss-kind", entry.classification.kind);
+
               badgeEl.dataset.rssTooltip = `
                 <div style="font-weight:700;margin-bottom:6px">${entry.classification.emoji} u/${entry.username}</div>
-                <div><b>Bot</b>: ${entry.scores.bot.toFixed(1)} · <b>AI</b>: ${entry.scores.ai.toFixed(1)} · <b>Profile</b>: ${entry.scores.profile.toFixed(1)}</div>
+                <div style="margin-bottom:4px"><b>Verdict</b>: ${entry.classification.kind}</div>
+                <div><b>Bot</b>: ${fmtThresholdProgress(entry.scores.bot, HARD_CODED_THRESHOLDS.bot)} · <b>AI</b>: ${fmtThresholdProgress(entry.scores.ai, HARD_CODED_THRESHOLDS.ai)} · <b>Profile</b>: ${fmtScore(entry.scores.profile, { signed: true })}</div>
               `;
             }
           })()
