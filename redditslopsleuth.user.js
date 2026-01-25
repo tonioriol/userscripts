@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RedditSlopSleuth
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.16
+// @version      0.1.17
 // @description  Heuristic bot/AI slop indicator for Reddit with per-user badges and a details side panel.
 // @author       Toni Oriol
 // @match        *://www.reddit.com/*
@@ -1186,6 +1186,7 @@
       selectedEntryId: null,
       activePopoverEntryId: null,
       popoverHideTimer: null,
+      globalBadgeHandlersAttached: false,
       entries: new Map(), // id -> entry
       perUserHistory: new Map(), // username -> Map(normText -> count)
       profileCache: new Map(), // username -> { fetchedAt, data, promise }
@@ -1622,6 +1623,88 @@
       // Keep hover popover open while hovering it.
       popover.addEventListener("pointerenter", () => cancelPopoverHide());
       popover.addEventListener("pointerleave", () => schedulePopoverHide(120));
+
+      const findBadgeFromEvent = (e) => {
+        const path = (() => {
+          try {
+            return typeof e?.composedPath === "function" ? e.composedPath() : null;
+          } catch {
+            return null;
+          }
+        })();
+
+        const nodes = Array.isArray(path) && path.length ? path : [e?.target];
+        for (const n of nodes) {
+          if (!(n instanceof win.Element)) continue;
+          if (n.getAttribute?.(BADGE_ATTR) === "true") return n;
+        }
+        return null;
+      };
+
+      // Defensive: some Reddit surfaces re-render nodes and can drop our per-badge listeners.
+      // Attach global handlers (capture) so badge interactions keep working.
+      if (!state.globalBadgeHandlersAttached) {
+        state.globalBadgeHandlersAttached = true;
+
+        win.addEventListener(
+          "click",
+          (e) => {
+            const badgeEl = findBadgeFromEvent(e);
+            if (!badgeEl) return;
+
+            const entryId = badgeEl.getAttribute?.(ENTRY_ID_ATTR);
+            const entry = entryId ? state.entries.get(entryId) : null;
+            if (!entry) return;
+
+            // Prevent Reddit handlers from hijacking the click.
+            e.preventDefault?.();
+            e.stopPropagation?.();
+            e.stopImmediatePropagation?.();
+
+            state.selectedEntryId = entry.id;
+
+            const isOpen = state.activePopoverEntryId === entry.id;
+            if (isOpen) {
+              setPopover({ show: false });
+            } else {
+              setPopover({ badgeEl, entry, show: true });
+            }
+
+            // Keep the drawer UI in sync if it's open.
+            if (state.open) state.ui?.render?.();
+          },
+          true
+        );
+
+        win.addEventListener(
+          "pointerover",
+          (e) => {
+            if (!isHoverCapable(win)) return;
+            const badgeEl = findBadgeFromEvent(e);
+            if (!badgeEl) return;
+
+            const entryId = badgeEl.getAttribute?.(ENTRY_ID_ATTR);
+            const entry = entryId ? state.entries.get(entryId) : null;
+            if (!entry) return;
+
+            cancelPopoverHide();
+            setPopover({ badgeEl, entry, show: true });
+            if (state.open) state.ui?.render?.();
+          },
+          true
+        );
+
+        win.addEventListener(
+          "pointerout",
+          (e) => {
+            if (!isHoverCapable(win)) return;
+            const badgeEl = findBadgeFromEvent(e);
+            if (!badgeEl) return;
+            schedulePopoverHide(120);
+          },
+          true
+        );
+      }
 
       root.appendChild(gearBtn);
       doc.body.appendChild(root);
