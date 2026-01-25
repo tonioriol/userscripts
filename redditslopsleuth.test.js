@@ -150,6 +150,37 @@ describe("RedditSlopSleuth", () => {
       expect(c.kind).toBe("human");
       expect(c.emoji).toBe("✅");
     });
+
+    it("stores v2 labels and exports JSON", async () => {
+      await engine.start();
+
+      const root = document.createElement("div");
+      root.innerHTML = `
+        <div class="comment">
+          <a class="author">UserZ</a>
+          <div class="md"><p>This is a fairly normal comment with some content. Not too long.</p></div>
+        </div>
+      `;
+      document.body.appendChild(root);
+
+      await engine.scanRoot(document);
+      const badge = root.querySelector('[data-rss-badge="true"]');
+      expect(badge).toBeTruthy();
+
+      badge.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+      const popover = document.querySelector(".rss-popover");
+      expect(popover).toBeTruthy();
+      expect(popover.textContent).toContain("Label item");
+
+      const btn = popover.querySelector('[data-rss-label-item="human"]');
+      expect(btn).toBeTruthy();
+      btn.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+
+      const stored = JSON.parse(window.localStorage.getItem("rss:v2:labels") || "null");
+      expect(stored).toBeTruthy();
+      expect(Array.isArray(stored.records)).toBe(true);
+      expect(stored.records.some((r) => r.kind === "item" && r.label === "human")).toBe(true);
+    });
   });
 
   describe("profile fetch", () => {

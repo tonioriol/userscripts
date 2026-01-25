@@ -42,6 +42,11 @@
   const PROFILE_MIN_INTERVAL_MS = 1200;
   const PROFILE_STORAGE_PREFIX = "rss-profile:";
 
+  const HISTORY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+  const HISTORY_FAILURE_TTL_MS = 30 * 60 * 1000;
+  const HISTORY_MIN_INTERVAL_MS = 900;
+  const HISTORY_STORAGE_PREFIX = "rss-history:";
+
   const SELECTORS = {
     // Broad containers for both new and old Reddit.
     content: [
@@ -1159,6 +1164,46 @@
     return runDeclarativeTextRules(TEXT_RULES, features);
   };
 
+  /**
+   * v2 training/integration helpers.
+   *
+   * These are NOT used by the runtime UI yet, but are exported for:
+   * - offline pretraining scripts (Node)
+   * - deterministic unit tests around feature extraction
+   */
+  const pickMlFeaturesFromText = (text) => {
+    const rawOriginal = String(text ?? "");
+    const f = buildTextFeatures({ rawOriginal, perUserHistory: null });
+    return {
+      // Size/structure
+      wordCount: f.wordCount,
+      sentenceCount: f.sentenceCount,
+      sentenceAvgLen: f.sentenceAvgLen,
+      sentenceLenVariance: f.sentenceLenVariance,
+      listLineCount: f.listLineCount,
+      mdHeadingCount: f.mdHeadingCount,
+      headingishLineCount: f.headingishLineCount,
+      revisionMarkerCount: f.revisionMarkerCount,
+      templateMaxRepeatCount: f.templateMaxRepeatCount,
+
+      // Artifacts
+      linkCount: f.linkCount,
+      numberTokenCount: f.numberTokenCount,
+      emojiPresent: f.emojiPresent ? 1 : 0,
+
+      // Style (may be gated later in v2)
+      contractionHitCount: f.contractionHitCount,
+      contractionsPer100Words: f.contractionsPer100Words,
+    };
+  };
+
+  const RSS_TRAIN_API = {
+    buildTextFeatures,
+    pickMlFeaturesFromText,
+    normalizeForNearDuplicate,
+    normalizeLineTemplate,
+  };
+
   // `botScore` is the bot-ish score *excluding* profile (username + botText).
   // `profileScore` is kept separate so we can show it independently and avoid double counting.
   const classify = ({ botScore, aiScore, profileScore }) => {
@@ -1208,7 +1253,146 @@
     return `${fmtScore(score)} / ${threshold}`;
   };
 
-  const createRedditSlopSleuth = ({ win, doc, fetchFn }) => {
+  // ------------------------------
+  // v2: lightweight ML helpers
+  // ------------------------------
+
+  const RSS_V2_MODEL_STORAGE_KEY = "rss:v2:model";
+  const RSS_V2_LABELS_STORAGE_KEY = "rss:v2:labels";
+
+  // Default shipped weights (placeholder until you run offline pretraining).
+  // This is intentionally conservative; it will be fine-tuned locally once label mode is used.
+  const RSS_V2_DEFAULT_MODEL = {
+    version: 1,
+    kind: "logreg-binary",
+    // Features are produced by `pickMlFeaturesFromText()`.
+    weights: {
+      wordCount: 0.002,
+      linkCount: 0.35,
+      templateMaxRepeatCount: 0.9,
+      headingishLineCount: 0.25,
+      listLineCount: 0.2,
+      mdHeadingCount: 0.15,
+      revisionMarkerCount: 0.25,
+      numberTokenCount: 0.05,
+      sentenceAvgLen: 0.05,
+      sentenceLenVariance: -0.02,
+      emojiPresent: -0.25,
+    },
+    bias: -1.6,
+  };
+
+  const RSS_V2_THRESHOLDS = {
+    // If the per-item ML probability is above this, we allow the badge to become 🧠.
+    itemAi: 0.78,
+    // If the rolling per-user probability is above this, prefer 🧠 even if a specific item is borderline.
+    userAi: 0.72,
+    // If both item and user are confidently low, allow ✅ (still requires "not bot-ish" and decent profile).
+    human: 0.20,
+  };
+
+  const RSS_V2_TELEMETRY_KEY = "rss:v2:telemetry";
+
+  const rssSigmoid = (z) => 1 / (1 + Math.exp(-z));
+
+  const rssDot = (w, x) => {
+    let s = 0;
+    for (const [k, v] of Object.entries(x || {})) {
+      const vv = Number(v);
+      if (!Number.isFinite(vv) || vv === 0) continue;
+      s += (Number(w?.[k] ?? 0) || 0) * vv;
+    }
+    return s;
+  };
+
+  const rssPredictAiProba = (model, features) => {
+    const z = rssDot(model?.weights || {}, features || {}) + (Number(model?.bias ?? 0) || 0);
+    const p = rssSigmoid(z);
+    if (!Number.isFinite(p)) return 0.5;
+    return clamp(p, 0, 1);
+  };
+
+  const rssTopContribs = (model, features, n = 8) => {
+    const pairs = [];
+    for (const [k, v] of Object.entries(features || {})) {
+      const vv = Number(v);
+      if (!Number.isFinite(vv) || vv === 0) continue;
+      const w = Number(model?.weights?.[k] ?? 0) || 0;
+      const c = w * vv;
+      if (!Number.isFinite(c) || c === 0) continue;
+      pairs.push([k, c, vv, w]);
+    }
+    pairs.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+    return pairs.slice(0, n).map(([k, c, vv, w]) => ({ key: k, contrib: c, value: vv, weight: w }));
+  };
+
+  const rssTrainStep = (model, features, yBool, { lr = 0.06, l2 = 1e-4 } = {}) => {
+    const y = yBool ? 1 : 0;
+    const weights = { ...(model?.weights || {}) };
+    let bias = Number(model?.bias ?? 0) || 0;
+
+    const p = rssPredictAiProba({ weights, bias }, features);
+    const err = p - y;
+
+    bias -= lr * err;
+
+    for (const [k, v] of Object.entries(features || {})) {
+      const vv = Number(v);
+      if (!Number.isFinite(vv) || vv === 0) continue;
+      const wk = Number(weights[k] ?? 0) || 0;
+      const grad = err * vv + l2 * wk;
+      weights[k] = wk - lr * grad;
+    }
+
+    return {
+      ...model,
+      kind: "logreg-binary",
+      version: Number(model?.version ?? 1) || 1,
+      weights,
+      bias,
+      updatedAt: Date.now(),
+    };
+  };
+
+  const rssLoadJson = (win, key) => {
+    try {
+      const raw = win?.localStorage?.getItem?.(key);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  };
+
+  const rssSaveJson = (win, key, value) => {
+    try {
+      win?.localStorage?.setItem?.(key, JSON.stringify(value));
+    } catch {
+      // Ignore quota/private mode.
+    }
+  };
+
+  const rssLoadModel = (win) => {
+    const stored = rssLoadJson(win, RSS_V2_MODEL_STORAGE_KEY);
+    if (stored && stored.kind === "logreg-binary" && stored.weights) return stored;
+    return RSS_V2_DEFAULT_MODEL;
+  };
+
+  const rssLoadLabels = (win) => {
+    const stored = rssLoadJson(win, RSS_V2_LABELS_STORAGE_KEY);
+    if (stored && typeof stored === "object") return stored;
+    return { version: 1, records: [] };
+  };
+
+  const createRedditSlopSleuth = ({ win, doc, fetchFn, options = {} }) => {
+    const v2Options = {
+      // Extra Reddit JSON fetches are implemented later in v2; keep the flag here so tests and
+      // users can control behavior deterministically.
+      enableHistoryFetch: true,
+      historyDailyQuotaPerUser: 4,
+      ...(options?.v2 || {}),
+    };
+
     const state = {
       open: false,
       selectedEntryId: null,
@@ -1225,6 +1409,59 @@
       nextProfileFetchAt: 0,
       profileQueue: Promise.resolve(),
       ratelimitedUntil: 0,
+
+      historyCache: new Map(), // key -> { fetchedAt, data, promise, error }
+      userHistoryFeatures: new Map(), // username -> features
+      historyQueue: Promise.resolve(),
+      nextHistoryFetchAt: 0,
+
+      // v2: label + model state
+      v2Model: rssLoadModel(win),
+      v2Labels: rssLoadLabels(win),
+      v2UserAgg: new Map(), // username -> { n, meanPAi }
+      v2UserLabel: new Map(), // username -> "human" | "ai"
+      v2TrainBuffer: [], // last N entries for console export
+
+      v2Options,
+    };
+
+    // Hydrate per-user label priors from stored label records.
+    try {
+      const recs = Array.isArray(state.v2Labels?.records) ? state.v2Labels.records : [];
+      for (const r of recs) {
+        if (r?.kind !== "user") continue;
+        const u = normalizeUsername(r.username);
+        const label = r.label === "ai" ? "ai" : r.label === "human" ? "human" : null;
+        if (u && label) state.v2UserLabel.set(u, label);
+      }
+    } catch {
+      // Ignore.
+    }
+
+    const v2SaveModel = () => rssSaveJson(win, RSS_V2_MODEL_STORAGE_KEY, state.v2Model);
+    const v2SaveLabels = () => rssSaveJson(win, RSS_V2_LABELS_STORAGE_KEY, state.v2Labels);
+
+    const v2AddLabelRecord = (rec) => {
+      state.v2Labels.records = Array.isArray(state.v2Labels.records) ? state.v2Labels.records : [];
+      state.v2Labels.records.push({ ...rec, ts: Date.now() });
+      // Bound storage.
+      if (state.v2Labels.records.length > 4000) {
+        state.v2Labels.records = state.v2Labels.records.slice(-3000);
+      }
+
+      // Keep an in-memory map of the latest per-user label.
+      if (rec?.kind === "user") {
+        const u = normalizeUsername(rec.username);
+        const label = rec.label === "ai" ? "ai" : rec.label === "human" ? "human" : null;
+        if (u && label) state.v2UserLabel.set(u, label);
+      }
+
+      v2SaveLabels();
+    };
+
+    const v2RememberTrainRow = (row) => {
+      state.v2TrainBuffer.push(row);
+      if (state.v2TrainBuffer.length > 200) state.v2TrainBuffer = state.v2TrainBuffer.slice(-150);
     };
 
     const safeHeaderNumber = (headers, name) => {
@@ -1290,6 +1527,225 @@
         }
       });
       return state.profileQueue;
+    };
+
+    const todayKey = () => {
+      const d = new Date();
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+      const day = String(d.getUTCDate()).padStart(2, "0");
+      return `${y}${m}${day}`;
+    };
+
+    const readStoredHistory = (username, endpoint) => {
+      try {
+        const key = `${HISTORY_STORAGE_PREFIX}${username}:${endpoint}`;
+        const raw = win?.localStorage?.getItem?.(key);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        const fetchedAt = Number(parsed?.fetchedAt);
+        if (!Number.isFinite(fetchedAt) || fetchedAt <= 0) return null;
+        const age = Date.now() - fetchedAt;
+        if (parsed.status === "ok") {
+          if (age < HISTORY_CACHE_TTL_MS) return { status: "ok", data: parsed.data ?? null, fetchedAt };
+          return null;
+        }
+        if (parsed.status === "fail") {
+          if (age < HISTORY_FAILURE_TTL_MS) return { status: "fail", data: null, fetchedAt };
+          return null;
+        }
+      } catch {
+        return null;
+      }
+      return null;
+    };
+
+    const writeStoredHistory = (username, endpoint, payload) => {
+      try {
+        const key = `${HISTORY_STORAGE_PREFIX}${username}:${endpoint}`;
+        win?.localStorage?.setItem?.(key, JSON.stringify(payload));
+      } catch {
+        // Ignore.
+      }
+    };
+
+    const bumpHistoryQuota = (username) => {
+      try {
+        const day = todayKey();
+        const key = `${HISTORY_STORAGE_PREFIX}quota:${day}:${username}`;
+        const n = Number(win?.localStorage?.getItem?.(key) || 0) || 0;
+        const next = n + 1;
+        win?.localStorage?.setItem?.(key, String(next));
+        return next;
+      } catch {
+        return 999;
+      }
+    };
+
+    const getHistoryQuota = (username) => {
+      try {
+        const day = todayKey();
+        const key = `${HISTORY_STORAGE_PREFIX}quota:${day}:${username}`;
+        return Number(win?.localStorage?.getItem?.(key) || 0) || 0;
+      } catch {
+        return 0;
+      }
+    };
+
+    const historyQueueFetch = async (fn) => {
+      state.historyQueue = state.historyQueue.then(async () => {
+        const now = Date.now();
+        const gate = Math.max(state.nextHistoryFetchAt, state.ratelimitedUntil);
+        const waitMs = Math.max(0, gate - now);
+        if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+        try {
+          return await fn();
+        } finally {
+          state.nextHistoryFetchAt = Math.max(Date.now() + HISTORY_MIN_INTERVAL_MS, state.ratelimitedUntil);
+        }
+      });
+      return state.historyQueue;
+    };
+
+    const safeDomainFromUrl = (rawUrl) => {
+      try {
+        const u = new URL(String(rawUrl || ""), win?.location?.origin || "https://www.reddit.com");
+        return u.hostname || "";
+      } catch {
+        return "";
+      }
+    };
+
+    const computeHistoryFeatures = (overviewJson) => {
+      const children = overviewJson?.data?.children || [];
+      const items = children.map((c) => c?.data).filter(Boolean);
+      const created = items.map((i) => Number(i.created_utc)).filter(Number.isFinite).sort((a, b) => a - b);
+
+      const subreddits = new Set(items.map((i) => String(i.subreddit || "").toLowerCase()).filter(Boolean));
+      const domains = new Set(
+        items
+          .map((i) => safeDomainFromUrl(i.url || i.link_url || i.permalink || ""))
+          .map((d) => d.toLowerCase())
+          .filter(Boolean)
+      );
+
+      const linkPosts = items.filter((i) => typeof i.url === "string" && /^https?:\/\//i.test(i.url)).length;
+      const total = items.length;
+      const linkRatio = total > 0 ? linkPosts / total : 0;
+
+      const avgDeltaHours = (() => {
+        if (created.length < 2) return 0;
+        let sum = 0;
+        for (let i = 1; i < created.length; i += 1) sum += created[i] - created[i - 1];
+        return (sum / (created.length - 1)) / 3600;
+      })();
+
+      return {
+        histCount: total,
+        histUniqueSubs: subreddits.size,
+        histUniqueDomains: domains.size,
+        histLinkRatio: Number.isFinite(linkRatio) ? linkRatio : 0,
+        histAvgDeltaHours: Number.isFinite(avgDeltaHours) ? avgDeltaHours : 0,
+      };
+    };
+
+    const getUserOverviewJson = async (username) => {
+      const u = normalizeUsername(username);
+      if (!u) return null;
+
+      const endpoint = "overview";
+      const stored = readStoredHistory(u, endpoint);
+      if (stored?.status === "ok") return stored.data || null;
+      if (stored?.status === "fail") return null;
+
+      const cacheKey = `${u}:${endpoint}`;
+      const cached = state.historyCache.get(cacheKey);
+      if (cached) {
+        const age = Date.now() - cached.fetchedAt;
+        if (cached.data && age < HISTORY_CACHE_TTL_MS) return cached.data;
+        if (cached.error && age < HISTORY_FAILURE_TTL_MS) return null;
+        if (cached.promise) return cached.promise;
+      }
+
+      if (!state.v2Options.enableHistoryFetch) return null;
+      if (getHistoryQuota(u) >= Number(state.v2Options.historyDailyQuotaPerUser || 0)) return null;
+
+      const promise = historyQueueFetch(async () => {
+        try {
+          bumpHistoryQuota(u);
+          const res = await fetchFn(`/user/${encodeURIComponent(u)}/overview.json?limit=25`, {
+            credentials: "include",
+          });
+
+          if (res.status === 429) {
+            const resetSeconds = safeHeaderNumber(res.headers, "x-ratelimit-reset");
+            const backoffMs = (resetSeconds ?? 120) * 1000;
+            state.ratelimitedUntil = Math.max(state.ratelimitedUntil, Date.now() + backoffMs);
+            state.historyCache.set(cacheKey, { fetchedAt: Date.now(), data: null, promise: null, error: true });
+            writeStoredHistory(u, endpoint, { status: "fail", fetchedAt: Date.now() });
+            return null;
+          }
+
+          if (!res.ok) throw new Error(`overview.json HTTP ${res.status}`);
+          const json = await res.json();
+          state.historyCache.set(cacheKey, { fetchedAt: Date.now(), data: json, promise: null, error: false });
+          writeStoredHistory(u, endpoint, { status: "ok", fetchedAt: Date.now(), data: json });
+          return json;
+        } catch {
+          state.historyCache.set(cacheKey, { fetchedAt: Date.now(), data: null, promise: null, error: true });
+          writeStoredHistory(u, endpoint, { status: "fail", fetchedAt: Date.now() });
+          return null;
+        }
+      });
+
+      state.historyCache.set(cacheKey, { fetchedAt: Date.now(), data: null, promise, error: false });
+      return promise;
+    };
+
+    const ensureUserHistoryFeatures = async (username) => {
+      const u = normalizeUsername(username);
+      if (!u) return null;
+      if (state.userHistoryFeatures.has(u)) return state.userHistoryFeatures.get(u);
+
+      const overview = await getUserOverviewJson(u);
+      if (!overview) return null;
+      const feats = computeHistoryFeatures(overview);
+      state.userHistoryFeatures.set(u, feats);
+      return feats;
+    };
+
+    // Note: v2 may refresh a user's badges after history fetch, but we avoid doing that inside
+    // `computeEntry()` to prevent recursive recomputation.
+    const refreshBadgesForUser = async (username) => {
+      const u = normalizeUsername(username);
+      if (!u) return;
+      const tasks = [];
+      for (const entry of state.entries.values()) {
+        if (entry.username !== u) continue;
+        tasks.push(
+          (async () => {
+            const computed = await computeEntry({
+              element: entry.element,
+              authorEl: entry.authorEl,
+              username: entry.username,
+              text: entry.text,
+            });
+            entry.scores = computed.scores;
+            entry.reasons = computed.reasons;
+            entry.classification = computed.classification;
+            entry.ml = computed.ml;
+
+            const badges = state.badgeByUsername.get(entry.username);
+            if (!badges) return;
+            for (const badgeEl of badges) {
+              if (badgeEl.getAttribute(ENTRY_ID_ATTR) !== entry.id) continue;
+              badgeEl.textContent = entry.classification.emoji;
+              badgeEl.setAttribute("data-rss-kind", entry.classification.kind);
+            }
+          })()
+        );
+      }
+      await Promise.all(tasks);
     };
 
     const getUserProfile = async (username) => {
@@ -1789,6 +2245,13 @@
         ...entry.reasons.profile,
       ].slice(0, 12);
 
+      const ml = entry.ml || null;
+      const mlTop = ml?.top || [];
+      const mlPct = ml && Number.isFinite(ml.pAi) ? Math.round(ml.pAi * 100) : null;
+      const userAgg = entry.ml?.userAgg || null;
+      const userPct = userAgg && Number.isFinite(userAgg.meanPAi) ? Math.round(userAgg.meanPAi * 100) : null;
+      const userLabel = state.v2UserLabel.get(entry.username) || null;
+
       const escapeHtml = (s) =>
         String(s ?? "")
           .replace(/&/g, "&amp;")
@@ -1808,6 +2271,21 @@
         </div>
         <div class="rss-text-sm rss-muted" style="margin-bottom:6px">Verdict: ${entry.classification.kind}</div>
         <div class="rss-text-sm rss-muted" style="margin-bottom:8px">Bot ${fmtThresholdProgress(entry.scores.bot, HARD_CODED_THRESHOLDS.bot)} · AI ${fmtThresholdProgress(entry.scores.ai, HARD_CODED_THRESHOLDS.ai)} · Profile ${fmtScore(entry.scores.profile, { signed: true })}</div>
+
+        <div class="rss-row" style="margin-bottom:10px">
+          <div class="rss-text-sm rss-muted" style="margin-bottom:6px">v2 ML: ${mlPct === null ? "n/a" : `${mlPct}% AI`} · User avg: ${userPct === null ? "n/a" : `${userPct}%`} · User label: ${escapeHtml(userLabel || "- ")}</div>
+          <div class="rss-text-sm rss-muted" style="margin-bottom:8px">Top features: ${mlTop
+            .map((t) => `${escapeHtml(t.key)}(${formatDelta(t.contrib, 2)})`)
+            .join(" · ")}</div>
+          <div class="rss-flex rss-gap-2" style="flex-wrap:wrap">
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-label-item="human">Label item: Human</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-label-item="ai">Label item: AI</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-label-user="human">Label user: Human</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-label-user="ai">Label user: AI</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-export-labels="true">Export labels JSON</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-export-train="true">Console: RSS-train-data row</button>
+          </div>
+        </div>
 
         <div class="rss-meters" style="margin-bottom:10px">
           <div>
@@ -1832,6 +2310,89 @@
         e.stopPropagation();
         pop.style.display = "none";
         state.activePopoverEntryId = null;
+      });
+
+      // Label buttons.
+      const safeCopy = async (text) => {
+        try {
+          await win?.navigator?.clipboard?.writeText?.(text);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      pop.querySelectorAll("[data-rss-label-item]").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const label = btn.getAttribute("data-rss-label-item");
+
+          // Train step (online fine-tune): update model using this label.
+          if (label === "human" || label === "ai") {
+            const y = label === "ai";
+            state.v2Model = rssTrainStep(state.v2Model, entry.ml?.features || {}, y, {
+              lr: 0.06,
+              l2: 1e-4,
+            });
+            v2SaveModel();
+          }
+
+          v2AddLabelRecord({
+            kind: "item",
+            label,
+            username: entry.username,
+            entryId: entry.id,
+            text: String(entry.text || ""),
+            features: entry.ml?.features || null,
+          });
+
+          // Recompute existing entries under the new model.
+          await refreshAllBadges();
+
+          // Best-effort clipboard export of just this label.
+          await safeCopy(JSON.stringify({ kind: "item", label, username: entry.username, entryId: entry.id }));
+        });
+      });
+
+      pop.querySelectorAll("[data-rss-label-user]").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const label = btn.getAttribute("data-rss-label-user");
+          v2AddLabelRecord({ kind: "user", label, username: entry.username });
+
+          // Recompute entries to reflect new user prior.
+          await refreshAllBadges();
+
+          await safeCopy(JSON.stringify({ kind: "user", label, username: entry.username }));
+        });
+      });
+
+      pop.querySelector("[data-rss-export-labels]")?.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const json = JSON.stringify(state.v2Labels, null, 2);
+        await safeCopy(json);
+      });
+
+      pop.querySelector("[data-rss-export-train]")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const row = {
+          kind: "rss-train-data",
+          url: String(win?.location?.href || ""),
+          username: entry.username,
+          entryId: entry.id,
+          text: String(entry.text || ""),
+          features: entry.ml?.features || null,
+        };
+        try {
+          // eslint-disable-next-line no-console
+          console.log("RSS-train-data", row);
+        } catch {
+          // Ignore.
+        }
       });
 
       // Show first, then position with measured size.
@@ -1935,6 +2496,48 @@
       const nameScore = scoreUsername(username);
       const textScore = scoreTextSignals(text, { perUserHistory: perUser });
 
+      // v2 ML: compute base features first.
+      const mlFeatures = pickMlFeaturesFromText(text);
+      let pAi = rssPredictAiProba(state.v2Model, mlFeatures);
+
+      // Pull history features only when needed (uncertain band) to reduce requests and speed.
+      const needHist =
+        state.v2Options.enableHistoryFetch &&
+        pAi >= 0.55 &&
+        pAi <= 0.85 &&
+        !state.userHistoryFeatures.has(username);
+
+      if (needHist) {
+        const hist = await ensureUserHistoryFeatures(username);
+        if (hist) {
+          Object.assign(mlFeatures, hist);
+          pAi = rssPredictAiProba(state.v2Model, mlFeatures);
+        }
+      } else {
+        // If cached already, include it.
+        const cachedHist = state.userHistoryFeatures.get(username);
+        if (cachedHist) Object.assign(mlFeatures, cachedHist);
+      }
+
+      const mlTop = rssTopContribs(state.v2Model, mlFeatures, 8);
+
+      // Rolling per-user probability aggregation.
+      const prevAgg = state.v2UserAgg.get(username) || { n: 0, meanPAi: 0 };
+      const n1 = prevAgg.n + 1;
+      const mean1 = prevAgg.n === 0 ? pAi : prevAgg.meanPAi + (pAi - prevAgg.meanPAi) / n1;
+      const agg = { n: n1, meanPAi: clamp(mean1, 0, 1) };
+      state.v2UserAgg.set(username, agg);
+
+      const userLabel = state.v2UserLabel.get(username) || null;
+
+      // Combine item+user probabilities.
+      const combinedPAi = (() => {
+        if (userLabel === "ai") return 0.95;
+        if (userLabel === "human") return Math.min(0.25, pAi);
+        // Weighted blend.
+        return clamp(pAi * 0.75 + agg.meanPAi * 0.25, 0, 1);
+      })();
+
       const profile = await getUserProfile(username);
       const profileScore = scoreProfile(profile);
 
@@ -1942,14 +2545,48 @@
       const botScore = botBaseScore + profileScore.score;
       const aiScore = textScore.ai.score;
 
-      const classification = classify({
+      let classification = classify({
         botScore: botBaseScore,
         aiScore,
         profileScore: profileScore.score,
       });
 
+      // v2: collapse "bot" into "ai" and allow ML to promote/demote.
+      // This is intentionally conservative: it only flips to 🧠 when ML is confident.
+      if (classification.kind === "bot") classification = { kind: "ai", emoji: "🧠" };
+
+      if (combinedPAi >= RSS_V2_THRESHOLDS.itemAi || agg.meanPAi >= RSS_V2_THRESHOLDS.userAi) {
+        classification = { kind: "ai", emoji: "🧠" };
+      } else {
+        // Only allow ✅ if both ML and heuristics are low and profile is strong.
+        const combinedV1 = botScore + aiScore;
+        if (
+          combinedPAi <= RSS_V2_THRESHOLDS.human &&
+          combinedV1 <= 1.5 &&
+          profileScore.score <= -2
+        ) {
+          classification = { kind: "human", emoji: "✅" };
+        }
+      }
+
+      // Keep a training row buffer for ad-hoc console export.
+      v2RememberTrainRow({
+        kind: "rss-train-data",
+        url: String(win?.location?.href || ""),
+        username,
+        entryId: null,
+        text: String(text || ""),
+        features: mlFeatures,
+      });
+
       return {
         scores: { bot: botScore, ai: aiScore, profile: profileScore.score },
+        ml: {
+          features: mlFeatures,
+          pAi,
+          top: mlTop,
+          userAgg: agg,
+        },
         breakdown: {
           bot: {
             username: nameScore.score,
@@ -2013,6 +2650,7 @@
         scores: { bot: 0, ai: 0, profile: 0 },
         reasons: { bot: [], ai: [], profile: [] },
         classification: { kind: "unknown", emoji: "❓" },
+        ml: null,
       };
       state.entries.set(entryId, entry);
 
@@ -2021,6 +2659,7 @@
       entry.scores = computed.scores;
       entry.reasons = computed.reasons;
       entry.classification = computed.classification;
+      entry.ml = computed.ml;
       updateBadgeFromEntry(entry);
 
       badge.addEventListener("click", (e) => {
@@ -2231,6 +2870,9 @@
 
     const refreshAllBadges = async () => {
       // Recompute classification when toggles change.
+      // v2: avoid aggregate drift by rebuilding per-user aggregates from scratch.
+      state.v2UserAgg.clear();
+
       const tasks = [];
       for (const entry of state.entries.values()) {
         tasks.push(
@@ -2310,8 +2952,22 @@
 
   // Export for tests.
   /* c8 ignore start */
+  // ESM Node can import this userscript file, but cannot access `module.exports`.
+  // When running under Node, expose a minimal API on globalThis for offline training scripts.
+  try {
+    if (typeof process !== "undefined" && process?.versions?.node) {
+      globalThis.__RSS_TRAIN__ = RSS_TRAIN_API;
+    }
+  } catch {
+    // Ignore.
+  }
+
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { createRedditSlopSleuth };
+    module.exports = {
+      createRedditSlopSleuth,
+      // Stable hooks for offline pretraining and targeted unit tests.
+      rssTrain: RSS_TRAIN_API,
+    };
   }
   /* c8 ignore stop */
 
