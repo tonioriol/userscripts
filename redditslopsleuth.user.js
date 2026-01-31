@@ -1278,6 +1278,16 @@
       contractionsPer100Words: englishStyleEnabled
         ? scale01(f.contractionsPer100Words, 20)
         : 0,
+
+      // History (default 0 when not available). These keys are merged into the ML
+      // feature vector in [`js.computeEntryBase()`](redditslopsleuth.user.js:3297).
+      // Keep them bounded (or boolean) so training stays stable.
+      overviewKindCommentRatio: 0,
+      overviewKindPostRatio: 0,
+      overviewIsCommentHeavy: 0,
+      overviewIsPostHeavy: 0,
+      overviewPostsPerDay01: 0,
+      overviewDaysActive01: 0,
     };
   };
 
