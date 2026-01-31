@@ -559,6 +559,16 @@
     return delta.toFixed(decimals);
   };
 
+  const parseSubredditFromUrl = (href) => {
+    try {
+      const s = String(href || "");
+      const m = s.match(/\/r\/([A-Za-z0-9_+.-]{2,50})\b/);
+      return m ? String(m[1]).toLowerCase() : "";
+    } catch {
+      return "";
+    }
+  };
+
   const renderReason = (template, vars) => {
     return String(template)
       .replaceAll("{hits}", String(vars.hits ?? 0))
@@ -1466,6 +1476,63 @@
       v2TrainBuffer: [], // last N entries for console export
 
       v2Options,
+    };
+
+    const extractEntryContext = (element) => {
+      const url = String(win?.location?.href || "");
+      const path = String(win?.location?.pathname || "");
+
+      const subreddit =
+        parseSubredditFromUrl(path) ||
+        parseSubredditFromUrl(url) ||
+        (() => {
+          try {
+            const a = element?.querySelector?.('a[href^="/r/"], a[href*="/r/"]');
+            return parseSubredditFromUrl(a?.getAttribute?.("href") || "");
+          } catch {
+            return "";
+          }
+        })();
+
+      const postTitle = (() => {
+        try {
+          const t =
+            element?.querySelector?.('h1, h2, [data-testid="post-title"], [slot="title"]') ||
+            doc?.querySelector?.('h1, [data-testid="post-title"], [slot="title"]');
+          return compactWs(safeText(t)).slice(0, 240);
+        } catch {
+          return "";
+        }
+      })();
+
+      const permalink = (() => {
+        try {
+          const a = element?.querySelector?.(
+            'a[href*="/comments/"], a[data-click-id="comments"], a[data-testid="comments-link"]'
+          );
+          return String(a?.getAttribute?.("href") || "");
+        } catch {
+          return "";
+        }
+      })();
+
+      const kind = (() => {
+        try {
+          if (element?.matches?.('div[data-testid="comment"], shreddit-comment')) return "comment";
+          if (element?.matches?.('article, shreddit-post, div[data-testid="post-container"], div.link')) return "post";
+        } catch {
+          // Ignore.
+        }
+        return "unknown";
+      })();
+
+      return {
+        url,
+        subreddit: subreddit || null,
+        postTitle: postTitle || null,
+        permalink: permalink || null,
+        kind,
+      };
     };
 
     // Hydrate per-user label priors from stored label records.
@@ -2826,9 +2893,10 @@
         e.stopPropagation();
         const row = {
           kind: "rss-train-data",
-          url: String(win?.location?.href || ""),
+          url: entry?.context?.url || String(win?.location?.href || ""),
           username: entry.username,
           entryId: entry.id,
+          context: entry.context || null,
           text: String(entry.text || ""),
           features: entry.ml?.features || null,
         };
@@ -3113,6 +3181,7 @@
         element,
         authorEl,
         text,
+        context: extractEntryContext(element),
         scores: { bot: 0, ai: 0, profile: 0 },
         reasons: { bot: [], ai: [], profile: [] },
         classification: { kind: "unknown", emoji: "❓" },
