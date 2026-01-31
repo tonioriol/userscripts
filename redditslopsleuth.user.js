@@ -16,6 +16,16 @@
 (() => {
   "use strict";
 
+  // ---------------------------------------------------------------------------
+  // File map (single-file userscript)
+  // ---------------------------------------------------------------------------
+  // - UI + CSS helpers: [`js.uiCss()`](redditslopsleuth.user.js:89)
+  // - Feature extraction: [`js.buildTextFeatures()`](redditslopsleuth.user.js:590)
+  // - Heuristic rules: [`js.TEXT_RULES`](redditslopsleuth.user.js:912)
+  // - ML feature vector: [`js.pickMlFeaturesFromText()`](redditslopsleuth.user.js:1224)
+  // - Shipped weights: [`js.RSS_V2_DEFAULT_MODEL`](redditslopsleuth.user.js:1345)
+  // - Main engine: [`js.createRedditSlopSleuth()`](redditslopsleuth.user.js:1489)
+
   /**
    * Clean-room implementation.
    * - No external CSS dependencies; styles are a small Tailwind-like utility subset.
@@ -3401,9 +3411,20 @@
       } else {
         // Only allow ✅ if both ML and heuristics are low and profile is strong.
         const combinedV1 = botScore + aiScore;
+
+         // Primary (strict) condition.
+         const canBeHumanStrict = combinedV1 <= 1.5;
+         // Secondary condition: if we have multiple samples for the user and ML is consistently low,
+         // relax the heuristic cap slightly. This makes profile/overview pages less spammy with ❓.
+         const canBeHumanByUser =
+           userAggEligible &&
+           userAgg.meanPAi <= RSS_V2_THRESHOLDS.human &&
+           base.baseScores.botBase <= 3.5 &&
+           botScore <= 3;
+
         if (
           combinedPAi <= RSS_V2_THRESHOLDS.human &&
-          combinedV1 <= 1.5 &&
+          (canBeHumanStrict || canBeHumanByUser) &&
           profileScore.score <= -2
         ) {
           classification = { kind: "human", emoji: "✅" };
