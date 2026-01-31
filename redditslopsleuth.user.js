@@ -1891,6 +1891,23 @@
       const total = items.length;
       const linkRatio = total > 0 ? linkPosts / total : 0;
 
+      // Mix / cadence (language-agnostic)
+      // NOTE: `overviewJson.data.children[].kind` is typically: t1 (comment), t3 (post)
+      const kindCommentCount = children.filter((c) => c?.kind === "t1").length;
+      const kindPostCount = children.filter((c) => c?.kind === "t3").length;
+      const kindTotal = Math.max(1, kindCommentCount + kindPostCount);
+      const overviewKindCommentRatio = kindCommentCount / kindTotal;
+      const overviewKindPostRatio = kindPostCount / kindTotal;
+
+      // Days active: coarse span between oldest and newest items in the listing.
+      const spanDays =
+        created.length >= 2
+          ? Math.max(0.25, (created[created.length - 1] - created[0]) / 86400)
+          : 0.25;
+      const postsPerDay = kindPostCount / spanDays;
+      const overviewPostsPerDay01 = clamp(postsPerDay / 10, 0, 1);
+      const overviewDaysActive01 = clamp(spanDays / 60, 0, 1);
+
       const avgDeltaHours = (() => {
         if (created.length < 2) return 0;
         let sum = 0;
@@ -1905,6 +1922,14 @@
         histUniqueDomains: domains.size,
         histLinkRatio: Number.isFinite(linkRatio) ? linkRatio : 0,
         histAvgDeltaHours: Number.isFinite(avgDeltaHours) ? avgDeltaHours : 0,
+        // Mix / cadence (language-agnostic)
+        overviewKindCommentRatio,
+        overviewKindPostRatio,
+        overviewIsCommentHeavy: overviewKindCommentRatio >= 0.8 ? 1 : 0,
+        overviewIsPostHeavy: overviewKindPostRatio >= 0.8 ? 1 : 0,
+        // Activity/age proxies (bounded)
+        overviewPostsPerDay01,
+        overviewDaysActive01,
       };
     };
 
