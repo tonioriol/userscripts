@@ -181,6 +181,42 @@ describe("RedditSlopSleuth", () => {
       expect(Array.isArray(stored.records)).toBe(true);
       expect(stored.records.some((r) => r.kind === "item" && r.label === "human")).toBe(true);
     });
+
+    it("keeps model history and can undo a tune", async () => {
+      await engine.start();
+
+      const root = document.createElement("div");
+      root.innerHTML = `
+        <div class="comment">
+          <a class="author">UndoUser</a>
+          <div class="md"><p>This is a fairly normal comment with some content. Not too long.</p></div>
+        </div>
+      `;
+      document.body.appendChild(root);
+      await engine.scanRoot(document);
+
+      const badge = root.querySelector('[data-rss-badge="true"]');
+      expect(badge).toBeTruthy();
+
+      // Open popover and label as AI to trigger a train step.
+      badge.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+      const popover = document.querySelector(".rss-popover");
+      const btnAi = popover.querySelector('[data-rss-label-item="ai"]');
+      expect(btnAi).toBeTruthy();
+      btnAi.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+
+      const histRaw = window.localStorage.getItem("rss:v2:modelHistory");
+      const hist = histRaw ? JSON.parse(histRaw) : null;
+      expect(Array.isArray(hist)).toBe(true);
+      expect(hist.length).toBeGreaterThanOrEqual(1);
+
+      // Open drawer, then click Undo tune.
+      const gear = document.querySelector(".rss-gear");
+      gear.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+      const undoBtn = document.querySelector('[data-rss-v2-undo="model"]');
+      expect(undoBtn).toBeTruthy();
+      undoBtn.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
   });
 
   describe("profile fetch", () => {

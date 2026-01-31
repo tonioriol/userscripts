@@ -1259,6 +1259,7 @@
 
   const RSS_V2_MODEL_STORAGE_KEY = "rss:v2:model";
   const RSS_V2_LABELS_STORAGE_KEY = "rss:v2:labels";
+  const RSS_V2_MODEL_HISTORY_STORAGE_KEY = "rss:v2:modelHistory";
 
   // Default shipped weights (placeholder until you run offline pretraining).
   // This is intentionally conservative; it will be fine-tuned locally once label mode is used.
@@ -1384,6 +1385,13 @@
     return { version: 1, records: [] };
   };
 
+  const rssLoadModelHistory = (win) => {
+    const stored = rssLoadJson(win, RSS_V2_MODEL_HISTORY_STORAGE_KEY);
+    if (Array.isArray(stored)) return stored;
+    if (stored && Array.isArray(stored.records)) return stored.records;
+    return [];
+  };
+
   const createRedditSlopSleuth = ({ win, doc, fetchFn, options = {} }) => {
     const v2Options = {
       // Extra Reddit JSON fetches are implemented later in v2; keep the flag here so tests and
@@ -1422,6 +1430,7 @@
       // v2: label + model state
       v2Model: rssLoadModel(win),
       v2Labels: rssLoadLabels(win),
+      v2ModelHistory: rssLoadModelHistory(win),
       v2UserAgg: new Map(), // username -> { n, meanPAi }
       v2UserLabel: new Map(), // username -> "human" | "ai"
       v2TrainBuffer: [], // last N entries for console export
@@ -1444,6 +1453,38 @@
 
     const v2SaveModel = () => rssSaveJson(win, RSS_V2_MODEL_STORAGE_KEY, state.v2Model);
     const v2SaveLabels = () => rssSaveJson(win, RSS_V2_LABELS_STORAGE_KEY, state.v2Labels);
+    const v2SaveModelHistory = () => rssSaveJson(win, RSS_V2_MODEL_HISTORY_STORAGE_KEY, state.v2ModelHistory);
+
+    const v2PushModelSnapshot = () => {
+      try {
+        state.v2ModelHistory = Array.isArray(state.v2ModelHistory) ? state.v2ModelHistory : [];
+        state.v2ModelHistory.push({ ...state.v2Model, ts: Date.now() });
+        if (state.v2ModelHistory.length > 40) state.v2ModelHistory = state.v2ModelHistory.slice(-30);
+        v2SaveModelHistory();
+      } catch {
+        // Ignore.
+      }
+    };
+
+    const v2UndoLastTune = async () => {
+      state.v2ModelHistory = Array.isArray(state.v2ModelHistory) ? state.v2ModelHistory : [];
+      const prev = state.v2ModelHistory.pop();
+      if (!prev) return false;
+      // Strip helper fields that may have been added.
+      const restored = {
+        version: Number(prev.version ?? 1) || 1,
+        kind: "logreg-binary",
+        weights: prev.weights || {},
+        bias: Number(prev.bias ?? 0) || 0,
+        updatedAt: Date.now(),
+      };
+      state.v2Model = restored;
+      v2SaveModel();
+      v2SaveModelHistory();
+      await refreshAllBadges();
+      state.ui?.render?.();
+      return true;
+    };
 
     const v2AddLabelRecord = (rec) => {
       state.v2Labels.records = Array.isArray(state.v2Labels.records) ? state.v2Labels.records : [];
@@ -2233,6 +2274,41 @@
           }
         })();
 
+        const evalSummary = (() => {
+          const recs = Array.isArray(state.v2Labels?.records) ? state.v2Labels.records : [];
+          const items = recs.filter((r) => r?.kind === "item" && (r.label === "ai" || r.label === "human"));
+          if (!items.length) return "no item labels";
+
+          const evalAt = (threshold) => {
+            let tp = 0;
+            let fp = 0;
+            let tn = 0;
+            let fn = 0;
+
+            for (const r of items) {
+              const feats = r?.features || (r?.text ? pickMlFeaturesFromText(r.text) : null);
+              if (!feats) continue;
+              const p = rssPredictAiProba(state.v2Model, feats);
+              const predAi = p >= threshold;
+              const yAi = r.label === "ai";
+              if (predAi && yAi) tp += 1;
+              else if (predAi && !yAi) fp += 1;
+              else if (!predAi && !yAi) tn += 1;
+              else fn += 1;
+            }
+
+            const total = tp + fp + tn + fn;
+            const acc = total ? (tp + tn) / total : 0;
+            const prec = tp + fp ? tp / (tp + fp) : 0;
+            const rec = tp + fn ? tp / (tp + fn) : 0;
+
+            const pct = (x) => `${Math.round(clamp(x, 0, 1) * 100)}%`;
+            return `t=${threshold}: acc ${pct(acc)} · prec ${pct(prec)} · rec ${pct(rec)} · TP ${tp} FP ${fp} TN ${tn} FN ${fn}`;
+          };
+
+          return `${evalAt(0.5)} | ${evalAt(RSS_V2_THRESHOLDS.itemAi)}`;
+        })();
+
         v2Panel.innerHTML = `
           <div class="rss-font-semibold">v2 ML</div>
           <div class="rss-text-sm rss-muted" style="margin-top:4px">
@@ -2247,10 +2323,16 @@
           <div class="rss-text-sm rss-muted" style="margin-top:6px">
             Top weights: ${topWeights.map(([k, v]) => `${k}(${fmtScore(v, { signed: true, decimals: 2 })})`).join(" · ")}
           </div>
+          <div class="rss-text-sm rss-muted" style="margin-top:6px">
+            Eval: ${evalSummary}
+          </div>
           <div class="rss-flex rss-gap-2" style="margin-top:8px; flex-wrap: wrap">
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="labels">Copy labels JSON</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="model">Copy model JSON</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-import="labels">Import labels JSON</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-import="model">Import model JSON</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="train">Console: RSS-train-data (buffer)</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-undo="model">Undo tune</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="model">Reset model</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="labels">Clear labels</button>
           </div>
@@ -2291,6 +2373,76 @@
           });
         });
 
+        const promptPaste = (title) => {
+          try {
+            if (typeof win?.prompt !== "function") return null;
+            return win.prompt(`${title}\nPaste JSON:`, "");
+          } catch {
+            return null;
+          }
+        };
+
+        v2Panel.querySelectorAll("[data-rss-v2-import]").forEach((btn) => {
+          btn.addEventListener("click", async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const kind = btn.getAttribute("data-rss-v2-import");
+            const raw = promptPaste(kind === "labels" ? "Import labels" : "Import model");
+            if (!raw) return;
+
+            let parsed;
+            try {
+              parsed = JSON.parse(raw);
+            } catch {
+              return;
+            }
+
+            if (kind === "labels") {
+              if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.records)) return;
+              state.v2Labels = parsed;
+
+              // Rebuild in-memory user priors.
+              state.v2UserLabel.clear();
+              for (const r of parsed.records) {
+                if (r?.kind !== "user") continue;
+                const u = normalizeUsername(r.username);
+                const label = r.label === "ai" ? "ai" : r.label === "human" ? "human" : null;
+                if (u && label) state.v2UserLabel.set(u, label);
+              }
+
+              v2SaveLabels();
+              await refreshAllBadges();
+              state.ui?.render?.();
+              return;
+            }
+
+            if (kind === "model") {
+              if (!parsed || typeof parsed !== "object") return;
+              if (parsed.kind !== "logreg-binary") return;
+              if (!parsed.weights || typeof parsed.weights !== "object") return;
+
+              // Importing a model should be undoable.
+              v2PushModelSnapshot();
+              state.v2Model = {
+                version: Number(parsed.version ?? 1) || 1,
+                kind: "logreg-binary",
+                weights: parsed.weights,
+                bias: Number(parsed.bias ?? 0) || 0,
+                updatedAt: Date.now(),
+              };
+              v2SaveModel();
+              await refreshAllBadges();
+              state.ui?.render?.();
+            }
+          });
+        });
+
+        v2Panel.querySelector("[data-rss-v2-undo=\"model\"]")?.addEventListener("click", async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          await v2UndoLastTune();
+        });
+
         v2Panel.querySelectorAll("[data-rss-v2-reset]").forEach((btn) => {
           btn.addEventListener("click", async (e) => {
             e.preventDefault();
@@ -2299,6 +2451,8 @@
             if (kind === "model") {
               state.v2Model = RSS_V2_DEFAULT_MODEL;
               v2SaveModel();
+              state.v2ModelHistory = [];
+              v2SaveModelHistory();
               await refreshAllBadges();
               state.ui?.render?.();
               return;
@@ -2591,6 +2745,7 @@
           // Train step (online fine-tune): update model using this label.
           if (label === "human" || label === "ai") {
             const y = label === "ai";
+            v2PushModelSnapshot();
             state.v2Model = rssTrainStep(state.v2Model, entry.ml?.features || {}, y, {
               lr: 0.06,
               l2: 1e-4,
