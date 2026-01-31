@@ -55,9 +55,20 @@ for (const l of lines) {
   const label = String(obj.label || "").toLowerCase();
   if (label !== "human" && label !== "ai") continue;
   const text = String(obj.text || "");
-  const features = api.pickMlFeaturesFromText(text);
+  // Allow passing through precomputed feature vectors (e.g. from RSS-train-data export)
+  // so we can train on history/context features that don't exist in raw datasets.
+  const featuresRaw =
+    obj.features && typeof obj.features === "object" && !Array.isArray(obj.features)
+      ? obj.features
+      : api.pickMlFeaturesFromText(text);
+
+  // Normalize feature values to finite numbers.
+  const features = {};
+  for (const [k, v] of Object.entries(featuresRaw)) {
+    const n = typeof v === "boolean" ? (v ? 1 : 0) : Number(v);
+    features[k] = Number.isFinite(n) ? n : 0;
+  }
   out.push(JSON.stringify({ label, features }));
 }
 
 fs.writeFileSync(outPath, out.join("\n") + "\n", "utf8");
-
