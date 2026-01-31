@@ -1389,6 +1389,9 @@
       // Extra Reddit JSON fetches are implemented later in v2; keep the flag here so tests and
       // users can control behavior deterministically.
       enableHistoryFetch: true,
+      // Extended history fetches can be noisy/expensive (extra quota and more JSON).
+      // Keep them opt-in until we ship pretrained weights that actually use these features.
+      enableExtendedHistoryFetch: false,
       historyDailyQuotaPerUser: 4,
       ...(options?.v2 || {}),
     };
@@ -1412,6 +1415,7 @@
 
       historyCache: new Map(), // key -> { fetchedAt, data, promise, error }
       userHistoryFeatures: new Map(), // username -> features
+      userHistoryLevel: new Map(), // username -> 0 (none) | 1 (overview) | 2 (overview+comments+submitted)
       historyQueue: Promise.resolve(),
       nextHistoryFetchAt: 0,
 
@@ -1616,7 +1620,7 @@
       }
     };
 
-    const computeHistoryFeatures = (overviewJson) => {
+    const computeOverviewHistoryFeatures = (overviewJson) => {
       const children = overviewJson?.data?.children || [];
       const items = children.map((c) => c?.data).filter(Boolean);
       const created = items.map((i) => Number(i.created_utc)).filter(Number.isFinite).sort((a, b) => a - b);
@@ -1649,11 +1653,99 @@
       };
     };
 
-    const getUserOverviewJson = async (username) => {
+    const computeCommentsHistoryFeatures = (commentsJson) => {
+      const children = commentsJson?.data?.children || [];
+      const items = children.map((c) => c?.data).filter(Boolean);
+
+      const subreddits = new Set(items.map((i) => String(i.subreddit || "").toLowerCase()).filter(Boolean));
+      const created = items
+        .map((i) => Number(i.created_utc))
+        .filter(Number.isFinite)
+        .sort((a, b) => a - b);
+
+      const bodies = items.map((i) => String(i.body || "")).filter(Boolean);
+      const bodyLens = bodies.map((b) => compactWs(b).split(/\s+/).filter(Boolean).length);
+      const bodyAvgWords = bodyLens.length ? bodyLens.reduce((a, b) => a + b, 0) / bodyLens.length : 0;
+
+      const templateMaxRepeat = (() => {
+        const counts = new Map();
+        for (const b of bodies) {
+          const norm = normalizeForNearDuplicate(b);
+          if (!norm || norm.split(/\s+/).length < 6) continue;
+          counts.set(norm, (counts.get(norm) || 0) + 1);
+        }
+        return Math.max(0, ...counts.values());
+      })();
+
+      const avgDeltaHours = (() => {
+        if (created.length < 2) return 0;
+        let sum = 0;
+        for (let i = 1; i < created.length; i += 1) sum += created[i] - created[i - 1];
+        return (sum / (created.length - 1)) / 3600;
+      })();
+
+      return {
+        histCommentsCount: items.length,
+        histCommentsUniqueSubs: subreddits.size,
+        histCommentsAvgWords: Number.isFinite(bodyAvgWords) ? bodyAvgWords : 0,
+        histCommentsTemplateMaxRepeat: templateMaxRepeat,
+        histCommentsAvgDeltaHours: Number.isFinite(avgDeltaHours) ? avgDeltaHours : 0,
+      };
+    };
+
+    const computeSubmittedHistoryFeatures = (submittedJson) => {
+      const children = submittedJson?.data?.children || [];
+      const items = children.map((c) => c?.data).filter(Boolean);
+
+      const subreddits = new Set(items.map((i) => String(i.subreddit || "").toLowerCase()).filter(Boolean));
+      const domains = new Set(
+        items
+          .map((i) => safeDomainFromUrl(i.url || i.link_url || i.permalink || ""))
+          .map((d) => d.toLowerCase())
+          .filter(Boolean)
+      );
+
+      const created = items
+        .map((i) => Number(i.created_utc))
+        .filter(Number.isFinite)
+        .sort((a, b) => a - b);
+
+      const titles = items.map((i) => String(i.title || "")).filter(Boolean);
+      const titleTemplateMaxRepeat = (() => {
+        const counts = new Map();
+        for (const t of titles) {
+          const norm = normalizeForNearDuplicate(t);
+          if (!norm || norm.split(/\s+/).length < 4) continue;
+          counts.set(norm, (counts.get(norm) || 0) + 1);
+        }
+        return Math.max(0, ...counts.values());
+      })();
+
+      const linkPosts = items.filter((i) => typeof i.url === "string" && /^https?:\/\//i.test(i.url)).length;
+      const total = items.length;
+      const linkRatio = total > 0 ? linkPosts / total : 0;
+
+      const avgDeltaHours = (() => {
+        if (created.length < 2) return 0;
+        let sum = 0;
+        for (let i = 1; i < created.length; i += 1) sum += created[i] - created[i - 1];
+        return (sum / (created.length - 1)) / 3600;
+      })();
+
+      return {
+        histSubmittedCount: total,
+        histSubmittedUniqueSubs: subreddits.size,
+        histSubmittedUniqueDomains: domains.size,
+        histSubmittedLinkRatio: Number.isFinite(linkRatio) ? linkRatio : 0,
+        histSubmittedTitleTemplateMaxRepeat: titleTemplateMaxRepeat,
+        histSubmittedAvgDeltaHours: Number.isFinite(avgDeltaHours) ? avgDeltaHours : 0,
+      };
+    };
+
+    const getUserListingJson = async (username, endpoint, url) => {
       const u = normalizeUsername(username);
       if (!u) return null;
 
-      const endpoint = "overview";
       const stored = readStoredHistory(u, endpoint);
       if (stored?.status === "ok") return stored.data || null;
       if (stored?.status === "fail") return null;
@@ -1673,9 +1765,7 @@
       const promise = historyQueueFetch(async () => {
         try {
           bumpHistoryQuota(u);
-          const res = await fetchFn(`/user/${encodeURIComponent(u)}/overview.json?limit=25`, {
-            credentials: "include",
-          });
+          const res = await fetchFn(url, { credentials: "include" });
 
           if (res.status === 429) {
             const resetSeconds = safeHeaderNumber(res.headers, "x-ratelimit-reset");
@@ -1686,7 +1776,7 @@
             return null;
           }
 
-          if (!res.ok) throw new Error(`overview.json HTTP ${res.status}`);
+          if (!res.ok) throw new Error(`${endpoint}.json HTTP ${res.status}`);
           const json = await res.json();
           state.historyCache.set(cacheKey, { fetchedAt: Date.now(), data: json, promise: null, error: false });
           writeStoredHistory(u, endpoint, { status: "ok", fetchedAt: Date.now(), data: json });
@@ -1702,16 +1792,57 @@
       return promise;
     };
 
-    const ensureUserHistoryFeatures = async (username) => {
+    const getUserOverviewJson = async (username) => {
       const u = normalizeUsername(username);
       if (!u) return null;
-      if (state.userHistoryFeatures.has(u)) return state.userHistoryFeatures.get(u);
+      const endpoint = "overview";
+      const url = `/user/${encodeURIComponent(u)}/overview.json?limit=25`;
+      return getUserListingJson(u, endpoint, url);
+    };
 
+    const getUserCommentsJson = async (username) => {
+      const u = normalizeUsername(username);
+      if (!u) return null;
+      const endpoint = "comments";
+      const url = `/user/${encodeURIComponent(u)}/comments.json?limit=50`;
+      return getUserListingJson(u, endpoint, url);
+    };
+
+    const getUserSubmittedJson = async (username) => {
+      const u = normalizeUsername(username);
+      if (!u) return null;
+      const endpoint = "submitted";
+      const url = `/user/${encodeURIComponent(u)}/submitted.json?limit=50`;
+      return getUserListingJson(u, endpoint, url);
+    };
+
+    const ensureUserHistoryFeatures = async (username, { level = 1 } = {}) => {
+      const u = normalizeUsername(username);
+      if (!u) return null;
+
+      const existingLevel = state.userHistoryLevel.get(u) || 0;
+      const existing = state.userHistoryFeatures.get(u) || null;
+      if (existing && existingLevel >= level) return existing;
+
+      // Always start with overview.
+      const out = { ...(existing || {}) };
       const overview = await getUserOverviewJson(u);
-      if (!overview) return null;
-      const feats = computeHistoryFeatures(overview);
-      state.userHistoryFeatures.set(u, feats);
-      return feats;
+      if (overview) Object.assign(out, computeOverviewHistoryFeatures(overview));
+      state.userHistoryLevel.set(u, Math.max(existingLevel, 1));
+
+      // Optional extended endpoints.
+      if (level >= 2 && state.v2Options.enableExtendedHistoryFetch) {
+        const comments = await getUserCommentsJson(u);
+        if (comments) Object.assign(out, computeCommentsHistoryFeatures(comments));
+        const submitted = await getUserSubmittedJson(u);
+        if (submitted) Object.assign(out, computeSubmittedHistoryFeatures(submitted));
+        state.userHistoryLevel.set(u, Math.max(state.userHistoryLevel.get(u) || 0, 2));
+      }
+
+      // If we got nothing useful, don't cache.
+      if (!Object.keys(out).length) return null;
+      state.userHistoryFeatures.set(u, out);
+      return out;
     };
 
     // Note: v2 may refresh a user's badges after history fetch, but we avoid doing that inside
