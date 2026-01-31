@@ -2904,7 +2904,7 @@
       authorEl?.insertAdjacentElement?.("afterend", badgeEl);
     };
 
-    const computeEntry = async ({ element, authorEl, username, text }) => {
+    const computeEntryBase = async ({ username, text }) => {
       const perUser = state.perUserHistory.get(username) || new Map();
       state.perUserHistory.set(username, perUser);
 
@@ -2916,14 +2916,15 @@
       let pAi = rssPredictAiProba(state.v2Model, mlFeatures);
 
       // Pull history features only when needed (uncertain band) to reduce requests and speed.
+      const desiredHistoryLevel = state.v2Options.enableExtendedHistoryFetch ? 2 : 1;
       const needHist =
         state.v2Options.enableHistoryFetch &&
         pAi >= 0.55 &&
         pAi <= 0.85 &&
-        !state.userHistoryFeatures.has(username);
+        (state.userHistoryLevel.get(username) || 0) < desiredHistoryLevel;
 
       if (needHist) {
-        const hist = await ensureUserHistoryFeatures(username);
+        const hist = await ensureUserHistoryFeatures(username, { level: desiredHistoryLevel });
         if (hist) {
           Object.assign(mlFeatures, hist);
           pAi = rssPredictAiProba(state.v2Model, mlFeatures);
@@ -2936,41 +2937,53 @@
 
       const mlTop = rssTopContribs(state.v2Model, mlFeatures, 8);
 
-      // Rolling per-user probability aggregation.
-      const prevAgg = state.v2UserAgg.get(username) || { n: 0, meanPAi: 0 };
-      const n1 = prevAgg.n + 1;
-      const mean1 = prevAgg.n === 0 ? pAi : prevAgg.meanPAi + (pAi - prevAgg.meanPAi) / n1;
-      const agg = { n: n1, meanPAi: clamp(mean1, 0, 1) };
-      state.v2UserAgg.set(username, agg);
+      const botBaseScore = nameScore.score + textScore.botText.score;
+      const aiScore = textScore.ai.score;
 
+      return {
+        baseScores: { botBase: botBaseScore, ai: aiScore },
+        ml: { features: mlFeatures, pAi, top: mlTop },
+        reasons: {
+          bot: [...nameScore.reasons, ...textScore.botText.reasons],
+          ai: [...textScore.ai.reasons],
+        },
+        breakdown: {
+          bot: {
+            username: nameScore.score,
+            text: textScore.botText.score,
+          },
+          ai: { text: textScore.ai.score },
+        },
+      };
+    };
+
+    const finalizeEntryClassification = async ({ username, base, userAgg }) => {
       const userLabel = state.v2UserLabel.get(username) || null;
 
       // Combine item+user probabilities.
       const combinedPAi = (() => {
         if (userLabel === "ai") return 0.95;
-        if (userLabel === "human") return Math.min(0.25, pAi);
+        if (userLabel === "human") return Math.min(0.25, base.ml.pAi);
         // Weighted blend.
-        return clamp(pAi * 0.75 + agg.meanPAi * 0.25, 0, 1);
+        return clamp(base.ml.pAi * 0.75 + userAgg.meanPAi * 0.25, 0, 1);
       })();
 
       const profile = await getUserProfile(username);
       const profileScore = scoreProfile(profile);
 
-      const botBaseScore = nameScore.score + textScore.botText.score;
-      const botScore = botBaseScore + profileScore.score;
-      const aiScore = textScore.ai.score;
+      const botScore = base.baseScores.botBase + profileScore.score;
+      const aiScore = base.baseScores.ai;
 
       let classification = classify({
-        botScore: botBaseScore,
+        botScore: base.baseScores.botBase,
         aiScore,
         profileScore: profileScore.score,
       });
 
       // v2: collapse "bot" into "ai" and allow ML to promote/demote.
-      // This is intentionally conservative: it only flips to 🧠 when ML is confident.
       if (classification.kind === "bot") classification = { kind: "ai", emoji: "🧠" };
 
-      if (combinedPAi >= RSS_V2_THRESHOLDS.itemAi || agg.meanPAi >= RSS_V2_THRESHOLDS.userAi) {
+      if (combinedPAi >= RSS_V2_THRESHOLDS.itemAi || userAgg.meanPAi >= RSS_V2_THRESHOLDS.userAi) {
         classification = { kind: "ai", emoji: "🧠" };
       } else {
         // Only allow ✅ if both ML and heuristics are low and profile is strong.
@@ -2984,6 +2997,38 @@
         }
       }
 
+      return {
+        scores: { bot: botScore, ai: aiScore, profile: profileScore.score },
+        reasons: {
+          bot: base.reasons.bot,
+          ai: base.reasons.ai,
+          profile: profileScore.reasons,
+        },
+        breakdown: {
+          ...base.breakdown,
+          bot: { ...base.breakdown.bot, profile: profileScore.score },
+        },
+        classification,
+        ml: {
+          ...base.ml,
+          userAgg,
+        },
+      };
+    };
+
+    const computeEntry = async ({ element, authorEl, username, text }) => {
+      const base = await computeEntryBase({ username, text });
+
+      // Running aggregation for incremental scoring (single-entry attach path). Full recompute uses
+      // a 2-pass aggregator so every entry sees the same per-user mean.
+      const prevAgg = state.v2UserAgg.get(username) || { n: 0, meanPAi: 0 };
+      const n1 = prevAgg.n + 1;
+      const mean1 = prevAgg.n === 0 ? base.ml.pAi : prevAgg.meanPAi + (base.ml.pAi - prevAgg.meanPAi) / n1;
+      const agg = { n: n1, meanPAi: clamp(mean1, 0, 1) };
+      state.v2UserAgg.set(username, agg);
+
+      const finalized = await finalizeEntryClassification({ username, base, userAgg: agg });
+
       // Keep a training row buffer for ad-hoc console export.
       v2RememberTrainRow({
         kind: "rss-train-data",
@@ -2991,34 +3036,10 @@
         username,
         entryId: null,
         text: String(text || ""),
-        features: mlFeatures,
+        features: base.ml.features,
       });
 
-      return {
-        scores: { bot: botScore, ai: aiScore, profile: profileScore.score },
-        ml: {
-          features: mlFeatures,
-          pAi,
-          top: mlTop,
-          userAgg: agg,
-        },
-        breakdown: {
-          bot: {
-            username: nameScore.score,
-            text: textScore.botText.score,
-            profile: profileScore.score,
-          },
-          ai: {
-            text: textScore.ai.score,
-          },
-        },
-        reasons: {
-          bot: [...nameScore.reasons, ...textScore.botText.reasons],
-          ai: [...textScore.ai.reasons],
-          profile: [...profileScore.reasons],
-        },
-        classification,
-      };
+      return finalized;
     };
 
     const attachBadge = async ({ element, authorEl, username, text }) => {
@@ -3285,39 +3306,62 @@
 
     const refreshAllBadges = async () => {
       // Recompute classification when toggles change.
-      // v2: avoid aggregate drift by rebuilding per-user aggregates from scratch.
+      //
+      // IMPORTANT: recomputation must be deterministic.
+      // - v1 near-duplicate uses per-user mutable state, so we rebuild it.
+      // - v2 per-user aggregation must be a stable mean over all seen entries for that user,
+      //   so we do a 2-pass recompute: pass 1 builds the aggregates, pass 2 classifies.
       state.v2UserAgg.clear();
-      // v1: avoid per-user history drift (near-duplicate matcher mutates this map).
       state.perUserHistory.clear();
 
-      // Recompute sequentially to keep per-user history based signals stable.
+      const baseById = new Map();
+      const tmpAgg = new Map();
+
+      // Pass 1: compute per-entry base scores + ML p(AI), and build per-user aggregates.
       for (const entry of state.entries.values()) {
-        const computed = await computeEntry({
-          element: entry.element,
-          authorEl: entry.authorEl,
-          username: entry.username,
-          text: entry.text,
-        });
+        const base = await computeEntryBase({ username: entry.username, text: entry.text });
+        baseById.set(entry.id, base);
 
-        entry.scores = computed.scores;
-        entry.reasons = computed.reasons;
-        entry.classification = computed.classification;
-        entry.ml = computed.ml;
-
-        const badges = state.badgeByUsername.get(entry.username);
-        if (!badges) continue;
-        for (const badgeEl of badges) {
-          if (badgeEl.getAttribute(ENTRY_ID_ATTR) !== entry.id) continue;
-          badgeEl.textContent = entry.classification.emoji;
-          badgeEl.setAttribute("data-rss-kind", entry.classification.kind);
-
-          badgeEl.dataset.rssTooltip = `
-            <div style="font-weight:700;margin-bottom:6px">${entry.classification.emoji} u/${entry.username}</div>
-            <div style="margin-bottom:4px"><b>Verdict</b>: ${entry.classification.kind}</div>
-            <div><b>Bot</b>: ${fmtThresholdProgress(entry.scores.bot, HARD_CODED_THRESHOLDS.bot)} · <b>AI</b>: ${fmtThresholdProgress(entry.scores.ai, HARD_CODED_THRESHOLDS.ai)} · <b>Profile</b>: ${fmtScore(entry.scores.profile, { signed: true })}</div>
-          `;
-        }
+        const prev = tmpAgg.get(entry.username) || { n: 0, meanPAi: 0 };
+        const n1 = prev.n + 1;
+        const mean1 = prev.n === 0 ? base.ml.pAi : prev.meanPAi + (base.ml.pAi - prev.meanPAi) / n1;
+        tmpAgg.set(entry.username, { n: n1, meanPAi: clamp(mean1, 0, 1) });
       }
+
+      for (const [u, agg] of tmpAgg.entries()) state.v2UserAgg.set(u, agg);
+
+      // Pass 2: finalize classification (profile fetches can be parallel).
+      const tasks = [];
+      for (const entry of state.entries.values()) {
+        tasks.push(
+          (async () => {
+            const base = baseById.get(entry.id);
+            if (!base) return;
+            const agg = state.v2UserAgg.get(entry.username) || { n: 0, meanPAi: base.ml.pAi };
+            const computed = await finalizeEntryClassification({ username: entry.username, base, userAgg: agg });
+
+            entry.scores = computed.scores;
+            entry.reasons = computed.reasons;
+            entry.classification = computed.classification;
+            entry.ml = computed.ml;
+
+            const badges = state.badgeByUsername.get(entry.username);
+            if (!badges) return;
+            for (const badgeEl of badges) {
+              if (badgeEl.getAttribute(ENTRY_ID_ATTR) !== entry.id) continue;
+              badgeEl.textContent = entry.classification.emoji;
+              badgeEl.setAttribute("data-rss-kind", entry.classification.kind);
+
+              badgeEl.dataset.rssTooltip = `
+                <div style="font-weight:700;margin-bottom:6px">${entry.classification.emoji} u/${entry.username}</div>
+                <div style="margin-bottom:4px"><b>Verdict</b>: ${entry.classification.kind}</div>
+                <div><b>Bot</b>: ${fmtThresholdProgress(entry.scores.bot, HARD_CODED_THRESHOLDS.bot)} · <b>AI</b>: ${fmtThresholdProgress(entry.scores.ai, HARD_CODED_THRESHOLDS.ai)} · <b>Profile</b>: ${fmtScore(entry.scores.profile, { signed: true })}</div>
+              `;
+            }
+          })()
+        );
+      }
+      await Promise.all(tasks);
     };
 
     const start = async () => {
