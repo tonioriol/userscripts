@@ -1716,36 +1716,41 @@
 
     // Note: v2 may refresh a user's badges after history fetch, but we avoid doing that inside
     // `computeEntry()` to prevent recursive recomputation.
+    //
+    // IMPORTANT: recomputation must be idempotent. Some text rules (like per-user near-duplicate)
+    // intentionally mutate per-user history state. If we re-score entries without rebuilding that
+    // state from scratch, a single entry can incorrectly become its own "duplicate".
     const refreshBadgesForUser = async (username) => {
       const u = normalizeUsername(username);
       if (!u) return;
-      const tasks = [];
+
+      // Rebuild per-user aggregates/history for this user only.
+      state.v2UserAgg.delete(u);
+      state.perUserHistory.delete(u);
+
       for (const entry of state.entries.values()) {
         if (entry.username !== u) continue;
-        tasks.push(
-          (async () => {
-            const computed = await computeEntry({
-              element: entry.element,
-              authorEl: entry.authorEl,
-              username: entry.username,
-              text: entry.text,
-            });
-            entry.scores = computed.scores;
-            entry.reasons = computed.reasons;
-            entry.classification = computed.classification;
-            entry.ml = computed.ml;
 
-            const badges = state.badgeByUsername.get(entry.username);
-            if (!badges) return;
-            for (const badgeEl of badges) {
-              if (badgeEl.getAttribute(ENTRY_ID_ATTR) !== entry.id) continue;
-              badgeEl.textContent = entry.classification.emoji;
-              badgeEl.setAttribute("data-rss-kind", entry.classification.kind);
-            }
-          })()
-        );
+        const computed = await computeEntry({
+          element: entry.element,
+          authorEl: entry.authorEl,
+          username: entry.username,
+          text: entry.text,
+        });
+        entry.scores = computed.scores;
+        entry.reasons = computed.reasons;
+        entry.classification = computed.classification;
+        entry.ml = computed.ml;
+
+        const badges = state.badgeByUsername.get(entry.username);
+        if (badges) {
+          for (const badgeEl of badges) {
+            if (badgeEl.getAttribute(ENTRY_ID_ATTR) !== entry.id) continue;
+            badgeEl.textContent = entry.classification.emoji;
+            badgeEl.setAttribute("data-rss-kind", entry.classification.kind);
+          }
+        }
       }
-      await Promise.all(tasks);
     };
 
     const getUserProfile = async (username) => {
@@ -2054,8 +2059,132 @@
         }
         list.appendChild(listBody);
 
+        const v2Panel = doc.createElement("div");
+        v2Panel.className = "rss-row";
+
+        const labelCounts = (() => {
+          const c = {
+            itemHuman: 0,
+            itemAi: 0,
+            userHuman: 0,
+            userAi: 0,
+          };
+          const recs = Array.isArray(state.v2Labels?.records) ? state.v2Labels.records : [];
+          for (const r of recs) {
+            if (r?.kind === "item") {
+              if (r.label === "human") c.itemHuman += 1;
+              else if (r.label === "ai") c.itemAi += 1;
+            }
+            if (r?.kind === "user") {
+              if (r.label === "human") c.userHuman += 1;
+              else if (r.label === "ai") c.userAi += 1;
+            }
+          }
+          return c;
+        })();
+
+        const topWeights = (() => {
+          const w = state.v2Model?.weights || {};
+          const pairs = Object.entries(w)
+            .map(([k, v]) => [k, Number(v)])
+            .filter(([, v]) => Number.isFinite(v) && v !== 0);
+          pairs.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+          return pairs.slice(0, 10);
+        })();
+
+        const modelUpdatedAt = (() => {
+          const ts = Number(state.v2Model?.updatedAt);
+          if (!Number.isFinite(ts) || ts <= 0) return "(shipped default)";
+          try {
+            return new Date(ts).toISOString();
+          } catch {
+            return String(ts);
+          }
+        })();
+
+        v2Panel.innerHTML = `
+          <div class="rss-font-semibold">v2 ML</div>
+          <div class="rss-text-sm rss-muted" style="margin-top:4px">
+            Labels: item AI ${labelCounts.itemAi} · item human ${labelCounts.itemHuman} · user AI ${labelCounts.userAi} · user human ${labelCounts.userHuman}
+          </div>
+          <div class="rss-text-sm rss-muted" style="margin-top:4px">
+            Model updated: ${modelUpdatedAt}
+          </div>
+          <div class="rss-text-sm rss-muted" style="margin-top:4px">
+            History fetch: ${state.v2Options?.enableHistoryFetch ? "on" : "off"} · quota/day/user: ${Number(state.v2Options?.historyDailyQuotaPerUser ?? 0) || 0}
+          </div>
+          <div class="rss-text-sm rss-muted" style="margin-top:6px">
+            Top weights: ${topWeights.map(([k, v]) => `${k}(${fmtScore(v, { signed: true, decimals: 2 })})`).join(" · ")}
+          </div>
+          <div class="rss-flex rss-gap-2" style="margin-top:8px; flex-wrap: wrap">
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="labels">Copy labels JSON</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="model">Copy model JSON</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="train">Console: RSS-train-data (buffer)</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="model">Reset model</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="labels">Clear labels</button>
+          </div>
+        `;
+
+        const copyToClipboard = async (text) => {
+          try {
+            await win?.navigator?.clipboard?.writeText?.(text);
+            return true;
+          } catch {
+            return false;
+          }
+        };
+
+        v2Panel.querySelectorAll("[data-rss-v2-export]").forEach((btn) => {
+          btn.addEventListener("click", async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const kind = btn.getAttribute("data-rss-v2-export");
+            if (kind === "labels") {
+              await copyToClipboard(JSON.stringify(state.v2Labels, null, 2));
+              return;
+            }
+            if (kind === "model") {
+              await copyToClipboard(JSON.stringify(state.v2Model, null, 2));
+              return;
+            }
+            if (kind === "train") {
+              try {
+                for (const row of state.v2TrainBuffer) {
+                  // eslint-disable-next-line no-console
+                  console.log("RSS-train-data", row);
+                }
+              } catch {
+                // Ignore.
+              }
+            }
+          });
+        });
+
+        v2Panel.querySelectorAll("[data-rss-v2-reset]").forEach((btn) => {
+          btn.addEventListener("click", async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const kind = btn.getAttribute("data-rss-v2-reset");
+            if (kind === "model") {
+              state.v2Model = RSS_V2_DEFAULT_MODEL;
+              v2SaveModel();
+              await refreshAllBadges();
+              state.ui?.render?.();
+              return;
+            }
+            if (kind === "labels") {
+              state.v2Labels = { version: 1, records: [] };
+              state.v2UserLabel.clear();
+              v2SaveLabels();
+              await refreshAllBadges();
+              state.ui?.render?.();
+            }
+          });
+        });
+
         body.appendChild(details);
         body.appendChild(list);
+        body.appendChild(v2Panel);
 
         drawer.appendChild(header);
         drawer.appendChild(body);
@@ -2872,39 +3001,37 @@
       // Recompute classification when toggles change.
       // v2: avoid aggregate drift by rebuilding per-user aggregates from scratch.
       state.v2UserAgg.clear();
+      // v1: avoid per-user history drift (near-duplicate matcher mutates this map).
+      state.perUserHistory.clear();
 
-      const tasks = [];
+      // Recompute sequentially to keep per-user history based signals stable.
       for (const entry of state.entries.values()) {
-        tasks.push(
-          (async () => {
-            const computed = await computeEntry({
-              element: entry.element,
-              authorEl: entry.authorEl,
-              username: entry.username,
-              text: entry.text,
-            });
+        const computed = await computeEntry({
+          element: entry.element,
+          authorEl: entry.authorEl,
+          username: entry.username,
+          text: entry.text,
+        });
 
-            entry.scores = computed.scores;
-            entry.reasons = computed.reasons;
-            entry.classification = computed.classification;
+        entry.scores = computed.scores;
+        entry.reasons = computed.reasons;
+        entry.classification = computed.classification;
+        entry.ml = computed.ml;
 
-            const badges = state.badgeByUsername.get(entry.username);
-            if (!badges) return;
-            for (const badgeEl of badges) {
-              if (badgeEl.getAttribute(ENTRY_ID_ATTR) !== entry.id) continue;
-              badgeEl.textContent = entry.classification.emoji;
-              badgeEl.setAttribute("data-rss-kind", entry.classification.kind);
+        const badges = state.badgeByUsername.get(entry.username);
+        if (!badges) continue;
+        for (const badgeEl of badges) {
+          if (badgeEl.getAttribute(ENTRY_ID_ATTR) !== entry.id) continue;
+          badgeEl.textContent = entry.classification.emoji;
+          badgeEl.setAttribute("data-rss-kind", entry.classification.kind);
 
-              badgeEl.dataset.rssTooltip = `
-                <div style="font-weight:700;margin-bottom:6px">${entry.classification.emoji} u/${entry.username}</div>
-                <div style="margin-bottom:4px"><b>Verdict</b>: ${entry.classification.kind}</div>
-                <div><b>Bot</b>: ${fmtThresholdProgress(entry.scores.bot, HARD_CODED_THRESHOLDS.bot)} · <b>AI</b>: ${fmtThresholdProgress(entry.scores.ai, HARD_CODED_THRESHOLDS.ai)} · <b>Profile</b>: ${fmtScore(entry.scores.profile, { signed: true })}</div>
-              `;
-            }
-          })()
-        );
+          badgeEl.dataset.rssTooltip = `
+            <div style="font-weight:700;margin-bottom:6px">${entry.classification.emoji} u/${entry.username}</div>
+            <div style="margin-bottom:4px"><b>Verdict</b>: ${entry.classification.kind}</div>
+            <div><b>Bot</b>: ${fmtThresholdProgress(entry.scores.bot, HARD_CODED_THRESHOLDS.bot)} · <b>AI</b>: ${fmtThresholdProgress(entry.scores.ai, HARD_CODED_THRESHOLDS.ai)} · <b>Profile</b>: ${fmtScore(entry.scores.profile, { signed: true })}</div>
+          `;
+        }
       }
-      await Promise.all(tasks);
     };
 
     const start = async () => {
