@@ -1363,9 +1363,10 @@
 
   const RSS_V2_THRESHOLDS = {
     // If the per-item ML probability is above this, we allow the badge to become 🧠.
-    itemAi: 0.78,
-    // If the rolling per-user probability is above this, prefer 🧠 even if a specific item is borderline.
-    userAi: 0.72,
+    // Tuned to reduce false positives (precision-first).
+    itemAi: 0.84,
+    // Only applied once we've seen multiple entries for a user (see finalizeEntryClassification()).
+    userAi: 0.8,
     // If both item and user are confidently low, allow ✅ (still requires "not bot-ish" and decent profile).
     human: 0.2,
   };
