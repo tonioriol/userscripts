@@ -607,6 +607,19 @@
     const gpsCoordPresent =
       /\b\d{1,2}°\d{2}'\d{2}"[NS]\b.*\b\d{1,3}°\d{2}'\d{2}"[EW]\b/i.test(rawOriginal);
     const suspiciousTldPresent = /\.(?:xyz|top|click|buzz|live|shop|online|site|store)\b/i.test(raw);
+
+    // Very lightweight English-like detector, used to gate language-dependent style signals.
+    // Requirements:
+    // - enough tokens to be meaningful
+    // - at least a few common English function words present
+    const englishStopwordHits = (() => {
+      if (!raw) return 0;
+      const matches = lowerAposNormalized.match(
+        /\b(?:the|and|to|of|is|are|was|were|be|been|have|has|had|do|does|did|not|that|this|you|i|we|they|it|in|for|with|on|as)\b/g
+      );
+      return (matches || []).length;
+    })();
+    const englishLike = wordCount >= 20 && englishStopwordHits >= 3;
     // Note: avoid multi-line regex literals because they can't contain unescaped newlines.
     // We normalize smart apostrophes (’ etc.) to ASCII (').
     const contractionHitCount = (
@@ -655,6 +668,8 @@
       casualMarkerPresent,
       gpsCoordPresent,
       suspiciousTldPresent,
+      englishStopwordHits,
+      englishLike,
       contractionHitCount,
       contractionsPer100Words,
       listLineCount,
@@ -953,6 +968,8 @@
       group: "ai",
       when: [
         { key: "hasEnoughWordsForStyleSignals", op: "eq", value: true },
+        // Contractions are an English-centric feature; don't apply this rule for non-English-like text.
+        { key: "englishLike", op: "eq", value: true },
         { key: "wordCount", op: "gt", value: 60 },
         // Use a rate instead of an absolute count. This avoids flagging long posts that contain
         // a couple of contractions, while still catching very formal / model-ish prose.
@@ -1174,26 +1191,39 @@
   const pickMlFeaturesFromText = (text) => {
     const rawOriginal = String(text ?? "");
     const f = buildTextFeatures({ rawOriginal, perUserHistory: null });
+
+    const capNum = (v, { min = -Infinity, max = Infinity } = {}) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return 0;
+      return clamp(n, min, max);
+    };
+
+    const englishStyleEnabled = Boolean(f.englishLike) && f.wordCount >= 20;
+
     return {
       // Size/structure
-      wordCount: f.wordCount,
-      sentenceCount: f.sentenceCount,
-      sentenceAvgLen: f.sentenceAvgLen,
-      sentenceLenVariance: f.sentenceLenVariance,
-      listLineCount: f.listLineCount,
-      mdHeadingCount: f.mdHeadingCount,
-      headingishLineCount: f.headingishLineCount,
-      revisionMarkerCount: f.revisionMarkerCount,
-      templateMaxRepeatCount: f.templateMaxRepeatCount,
+      wordCount: capNum(f.wordCount, { min: 0, max: 600 }),
+      sentenceCount: capNum(f.sentenceCount, { min: 0, max: 40 }),
+      sentenceAvgLen: capNum(f.sentenceAvgLen, { min: 0, max: 50 }),
+      sentenceLenVariance: capNum(f.sentenceLenVariance, { min: 0, max: 250 }),
+      listLineCount: capNum(f.listLineCount, { min: 0, max: 30 }),
+      mdHeadingCount: capNum(f.mdHeadingCount, { min: 0, max: 20 }),
+      headingishLineCount: capNum(f.headingishLineCount, { min: 0, max: 20 }),
+      revisionMarkerCount: capNum(f.revisionMarkerCount, { min: 0, max: 10 }),
+      templateMaxRepeatCount: capNum(f.templateMaxRepeatCount, { min: 0, max: 10 }),
 
       // Artifacts
-      linkCount: f.linkCount,
-      numberTokenCount: f.numberTokenCount,
+      linkCount: capNum(f.linkCount, { min: 0, max: 12 }),
+      numberTokenCount: capNum(f.numberTokenCount, { min: 0, max: 80 }),
       emojiPresent: f.emojiPresent ? 1 : 0,
 
       // Style (may be gated later in v2)
-      contractionHitCount: f.contractionHitCount,
-      contractionsPer100Words: f.contractionsPer100Words,
+      englishStopwordHits: capNum(f.englishStopwordHits, { min: 0, max: 80 }),
+      englishLike: f.englishLike ? 1 : 0,
+      contractionHitCount: englishStyleEnabled ? capNum(f.contractionHitCount, { min: 0, max: 40 }) : 0,
+      contractionsPer100Words: englishStyleEnabled
+        ? capNum(f.contractionsPer100Words, { min: 0, max: 20 })
+        : 0,
     };
   };
 
