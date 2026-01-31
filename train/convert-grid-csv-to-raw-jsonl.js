@@ -34,6 +34,24 @@ const parseArgs = (argv) => {
   return args;
 };
 
+const findColumnIndex = (headers, preferred, fallbacks = []) => {
+  const direct = headers.indexOf(preferred);
+  if (direct >= 0) return direct;
+
+  for (const fb of fallbacks) {
+    const idx = headers.indexOf(fb);
+    if (idx >= 0) return idx;
+  }
+
+  const norm = (s) => String(s || "").trim().toLowerCase();
+  const wanted = new Set([preferred, ...fallbacks].map(norm).filter(Boolean));
+  for (let i = 0; i < headers.length; i += 1) {
+    if (wanted.has(norm(headers[i]))) return i;
+  }
+
+  return -1;
+};
+
 const parseCsvLine = (line) => {
   // Minimal CSV parser: supports commas + quoted fields with escaped quotes.
   const out = [];
@@ -90,11 +108,15 @@ if (!lines.length) {
 }
 
 const headers = parseCsvLine(lines[0]).map((h) => String(h || "").trim());
-const idxText = headers.indexOf(textCol);
-const idxLabel = headers.indexOf(labelCol);
+const idxText = findColumnIndex(headers, textCol, ["data", "Text"]);
+// GRiD variants use either `Label` or `Labels`.
+const idxLabel = findColumnIndex(headers, labelCol, ["Labels", "labels"]);
 if (idxText < 0 || idxLabel < 0) {
   // eslint-disable-next-line no-console
-  console.error(`Missing required columns. Found: ${headers.join(", ")}`);
+  console.error(
+    `Missing required columns. Found: ${headers.join(", ")}. ` +
+      `Try passing --text-col <name> and --label-col <name> (eg, --label-col Labels).`
+  );
   process.exit(2);
 }
 
@@ -124,4 +146,3 @@ fs.writeFileSync(outPath, out.join("\n") + "\n", "utf8");
 
 // eslint-disable-next-line no-console
 console.log(`Wrote ${out.length} rows to ${outPath} (human=${nHuman}, ai=${nAi})`);
-

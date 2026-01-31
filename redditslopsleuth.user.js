@@ -1304,24 +1304,24 @@
   // Default shipped weights (placeholder until you run offline pretraining).
   // This is intentionally conservative; it will be fine-tuned locally once label mode is used.
   const RSS_V2_DEFAULT_MODEL = {
-    version: 1,
-    kind: "logreg-binary",
-    // Features are produced by `pickMlFeaturesFromText()`.
-    weights: {
-      wordCount: 0.002,
-      linkCount: 0.35,
-      templateMaxRepeatCount: 0.9,
-      headingishLineCount: 0.25,
-      listLineCount: 0.2,
-      mdHeadingCount: 0.15,
-      revisionMarkerCount: 0.25,
-      numberTokenCount: 0.05,
-      sentenceAvgLen: 0.05,
-      sentenceLenVariance: -0.02,
-      emojiPresent: -0.25,
-    },
-    bias: -1.6,
-  };
+  "version": 1,
+  "kind": "logreg-binary",
+  "weights": {
+    "wordCount": -14.73846308312574,
+    "sentenceCount": -22.63139102295767,
+    "sentenceAvgLen": 12.517181064195068,
+    "sentenceLenVariance": -4.632511859911024,
+    "templateMaxRepeatCount": -9.025308919878269,
+    "englishStopwordHits": 27.686295123714597,
+    "numberTokenCount": -10.881190467080295,
+    "englishLike": 158.31627447101033,
+    "contractionHitCount": -160.66734870869536,
+    "contractionsPer100Words": -10.850304587487877,
+    "headingishLineCount": -25.881834328994124,
+    "listLineCount": -0.7794967561885358
+  },
+  "bias": -21.627544805985988
+};
 
   const RSS_V2_THRESHOLDS = {
     // If the per-item ML probability is above this, we allow the badge to become 🧠.
