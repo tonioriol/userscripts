@@ -81,8 +81,8 @@
     text: [
       "div.md",
       "div.usertext-body",
-      "div[data-click-id=\"text\"]",
-      "div[data-testid=\"comment\"]",
+      'div[data-click-id="text"]',
+      'div[data-testid="comment"]',
     ],
   };
 
@@ -352,17 +352,22 @@
       () => {
         addStyle(css);
       },
-      { once: true }
+      { once: true },
     );
   };
 
   const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
   const safeText = (node) => node?.innerText ?? node?.textContent ?? "";
-  const compactWs = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+  const compactWs = (s) =>
+    String(s ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
 
   const isHoverCapable = (win) => {
     try {
-      return Boolean(win?.matchMedia?.("(hover: hover) and (pointer: fine)")?.matches);
+      return Boolean(
+        win?.matchMedia?.("(hover: hover) and (pointer: fine)")?.matches,
+      );
     } catch {
       return false;
     }
@@ -596,27 +601,37 @@
       .map((s) => compactWs(s))
       .filter(Boolean);
 
-    const sentenceLens = sentences.map((s) => s.split(/\s+/).filter(Boolean).length);
+    const sentenceLens = sentences.map(
+      (s) => s.split(/\s+/).filter(Boolean).length,
+    );
     const sentenceCount = sentenceLens.length;
     const sentenceAvgLen =
-      sentenceCount > 0 ? sentenceLens.reduce((a, b) => a + b, 0) / sentenceCount : 0;
+      sentenceCount > 0
+        ? sentenceLens.reduce((a, b) => a + b, 0) / sentenceCount
+        : 0;
     const sentenceLenVariance = (() => {
       if (sentenceCount <= 1) return 0;
       const avg = sentenceAvgLen;
-      return sentenceLens.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / sentenceCount;
+      return (
+        sentenceLens.reduce((a, b) => a + Math.pow(b - avg, 2), 0) /
+        sentenceCount
+      );
     })();
 
     const linkCount = (rawOriginal.match(/https?:\/\//gi) || []).length;
-    const numberTokenCount = (rawOriginal.match(/\b\d+(?:[.,]\d+)?\b/g) || []).length;
+    const numberTokenCount = (rawOriginal.match(/\b\d+(?:[.,]\d+)?\b/g) || [])
+      .length;
 
     const emojiPresent = /([\uD83C-\uDBFF][\uDC00-\uDFFF])/.test(rawOriginal);
     const questionMarkTerminal = /\?\s*$/.test(rawOriginal);
-    const casualMarkerPresent = /\b(?:lol|lmao|tbh|imo|imho|jaja|jajaja)\b/i.test(
-      rawOriginal
-    );
+    const casualMarkerPresent =
+      /\b(?:lol|lmao|tbh|imo|imho|jaja|jajaja)\b/i.test(rawOriginal);
     const gpsCoordPresent =
-      /\b\d{1,2}°\d{2}'\d{2}"[NS]\b.*\b\d{1,3}°\d{2}'\d{2}"[EW]\b/i.test(rawOriginal);
-    const suspiciousTldPresent = /\.(?:xyz|top|click|buzz|live|shop|online|site|store)\b/i.test(raw);
+      /\b\d{1,2}°\d{2}'\d{2}"[NS]\b.*\b\d{1,3}°\d{2}'\d{2}"[EW]\b/i.test(
+        rawOriginal,
+      );
+    const suspiciousTldPresent =
+      /\.(?:xyz|top|click|buzz|live|shop|online|site|store)\b/i.test(raw);
 
     // Very lightweight English-like detector, used to gate language-dependent style signals.
     // Requirements:
@@ -625,7 +640,7 @@
     const englishStopwordHits = (() => {
       if (!raw) return 0;
       const matches = lowerAposNormalized.match(
-        /\b(?:the|and|to|of|is|are|was|were|be|been|have|has|had|do|does|did|not|that|this|you|i|we|they|it|in|for|with|on|as)\b/g
+        /\b(?:the|and|to|of|is|are|was|were|be|been|have|has|had|do|does|did|not|that|this|you|i|we|they|it|in|for|with|on|as)\b/g,
       );
       return (matches || []).length;
     })();
@@ -634,15 +649,20 @@
     // We normalize smart apostrophes (’ etc.) to ASCII (').
     const contractionHitCount = (
       lowerAposNormalized.match(
-        /\b(?:i'(?:m|ve|ll|d)|you'(?:re|ve|ll|d)|we'(?:re|ve|ll|d)|they'(?:re|ve|ll|d)|he'(?:s|ll|d)|she'(?:s|ll|d)|it'(?:s|ll|d)|that'(?:s|ll|d)|there's|here's|what's|who's|let's|y'all|[a-z]+n't)\b/g
+        /\b(?:i'(?:m|ve|ll|d)|you'(?:re|ve|ll|d)|we'(?:re|ve|ll|d)|they'(?:re|ve|ll|d)|he'(?:s|ll|d)|she'(?:s|ll|d)|it'(?:s|ll|d)|that'(?:s|ll|d)|there's|here's|what's|who's|let's|y'all|[a-z]+n't)\b/g,
       ) || []
     ).length;
-    const contractionsPer100Words = wordCount > 0 ? (contractionHitCount / wordCount) * 100 : 0;
-    const listLineCount = nonEmptyLines.filter((l) => /^(?:[-*•]\s+|\d+\.)/.test(l)).length;
-    const mdHeadingCount = nonEmptyLines.filter((l) => /^#{1,6}\s+\S+/.test(l)).length;
+    const contractionsPer100Words =
+      wordCount > 0 ? (contractionHitCount / wordCount) * 100 : 0;
+    const listLineCount = nonEmptyLines.filter((l) =>
+      /^(?:[-*•]\s+|\d+\.)/.test(l),
+    ).length;
+    const mdHeadingCount = nonEmptyLines.filter((l) =>
+      /^#{1,6}\s+\S+/.test(l),
+    ).length;
     const headingishLineCount = nonEmptyLines.filter(isHeadingishLine).length;
     const revisionMarkerCount = nonEmptyLines.filter((l) =>
-      /^\(?\s*(?:edit|update|actualiz\w*)\d*\s*[:：]/i.test(l)
+      /^\(?\s*(?:edit|update|actualiz\w*)\d*\s*[:：]/i.test(l),
     ).length;
 
     const templateMaxRepeatCount = (() => {
@@ -711,7 +731,9 @@
               };
             }
             if (r.match.type === "phrases") {
-              const phrases = (r.match.phrases || []).map((p) => String(p).toLowerCase());
+              const phrases = (r.match.phrases || []).map((p) =>
+                String(p).toLowerCase(),
+              );
               return { ...r.match, _phrases: phrases };
             }
             if (r.match.type === "set_in") {
@@ -808,8 +830,10 @@
       const mul = Number(score.mul ?? 1);
       let delta = (input - offset) * mul;
 
-      if (Number.isFinite(score.min)) delta = Math.max(Number(score.min), delta);
-      if (Number.isFinite(score.max)) delta = Math.min(Number(score.max), delta);
+      if (Number.isFinite(score.min))
+        delta = Math.max(Number(score.min), delta);
+      if (Number.isFinite(score.max))
+        delta = Math.min(Number(score.max), delta);
       return delta;
     }
 
@@ -893,8 +917,7 @@
       match: {
         type: "regex",
         target: "raw",
-        pattern:
-          "\\bas an ai\\b|\\bas an ai language model\\b",
+        pattern: "\\bas an ai\\b|\\bas an ai language model\\b",
         flags: "i",
         mode: "presence",
       },
@@ -1220,7 +1243,10 @@
       mdHeadingCount: capNum(f.mdHeadingCount, { min: 0, max: 20 }),
       headingishLineCount: capNum(f.headingishLineCount, { min: 0, max: 20 }),
       revisionMarkerCount: capNum(f.revisionMarkerCount, { min: 0, max: 10 }),
-      templateMaxRepeatCount: capNum(f.templateMaxRepeatCount, { min: 0, max: 10 }),
+      templateMaxRepeatCount: capNum(f.templateMaxRepeatCount, {
+        min: 0,
+        max: 10,
+      }),
 
       // Artifacts
       linkCount: capNum(f.linkCount, { min: 0, max: 12 }),
@@ -1230,7 +1256,9 @@
       // Style (may be gated later in v2)
       englishStopwordHits: capNum(f.englishStopwordHits, { min: 0, max: 80 }),
       englishLike: f.englishLike ? 1 : 0,
-      contractionHitCount: englishStyleEnabled ? capNum(f.contractionHitCount, { min: 0, max: 40 }) : 0,
+      contractionHitCount: englishStyleEnabled
+        ? capNum(f.contractionHitCount, { min: 0, max: 40 })
+        : 0,
       contractionsPer100Words: englishStyleEnabled
         ? capNum(f.contractionsPer100Words, { min: 0, max: 20 })
         : 0,
@@ -1307,20 +1335,24 @@
   "version": 1,
   "kind": "logreg-binary",
   "weights": {
-    "wordCount": -14.73846308312574,
-    "sentenceCount": -22.63139102295767,
-    "sentenceAvgLen": 12.517181064195068,
-    "sentenceLenVariance": -4.632511859911024,
-    "templateMaxRepeatCount": -9.025308919878269,
-    "englishStopwordHits": 27.686295123714597,
-    "numberTokenCount": -10.881190467080295,
-    "englishLike": 158.31627447101033,
-    "contractionHitCount": -160.66734870869536,
-    "contractionsPer100Words": -10.850304587487877,
-    "headingishLineCount": -25.881834328994124,
-    "listLineCount": -0.7794967561885358
+    "wordCount": -11.206026770285568,
+    "sentenceCount": -163.39428650301016,
+    "sentenceAvgLen": -20.528797048272587,
+    "sentenceLenVariance": -15.530485190830357,
+    "templateMaxRepeatCount": -20.61566276635274,
+    "englishStopwordHits": 148.452074686856,
+    "englishLike": 0.5897584682480486,
+    "numberTokenCount": -47.38189294883496,
+    "contractionHitCount": 37.16292621694139,
+    "contractionsPer100Words": -4.0605196914871176,
+    "headingishLineCount": 469.21693855502593,
+    "listLineCount": 258.4669183006541,
+    "linkCount": -37.21260912688075,
+    "revisionMarkerCount": -2.878146089613859,
+    "mdHeadingCount": -0.5997865667000167,
+    "emojiPresent": -0.5399704785183097
   },
-  "bias": -21.627544805985988
+  "bias": -215.71203647519448
 };
 
   const RSS_V2_THRESHOLDS = {
@@ -1329,7 +1361,7 @@
     // If the rolling per-user probability is above this, prefer 🧠 even if a specific item is borderline.
     userAi: 0.72,
     // If both item and user are confidently low, allow ✅ (still requires "not bot-ish" and decent profile).
-    human: 0.20,
+    human: 0.2,
   };
 
   const RSS_V2_TELEMETRY_KEY = "rss:v2:telemetry";
@@ -1347,7 +1379,9 @@
   };
 
   const rssPredictAiProba = (model, features) => {
-    const z = rssDot(model?.weights || {}, features || {}) + (Number(model?.bias ?? 0) || 0);
+    const z =
+      rssDot(model?.weights || {}, features || {}) +
+      (Number(model?.bias ?? 0) || 0);
     const p = rssSigmoid(z);
     if (!Number.isFinite(p)) return 0.5;
     return clamp(p, 0, 1);
@@ -1364,10 +1398,17 @@
       pairs.push([k, c, vv, w]);
     }
     pairs.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
-    return pairs.slice(0, n).map(([k, c, vv, w]) => ({ key: k, contrib: c, value: vv, weight: w }));
+    return pairs
+      .slice(0, n)
+      .map(([k, c, vv, w]) => ({ key: k, contrib: c, value: vv, weight: w }));
   };
 
-  const rssTrainStep = (model, features, yBool, { lr = 0.06, l2 = 1e-4 } = {}) => {
+  const rssTrainStep = (
+    model,
+    features,
+    yBool,
+    { lr = 0.06, l2 = 1e-4 } = {},
+  ) => {
     const y = yBool ? 1 : 0;
     const weights = { ...(model?.weights || {}) };
     let bias = Number(model?.bias ?? 0) || 0;
@@ -1415,7 +1456,8 @@
 
   const rssLoadModel = (win) => {
     const stored = rssLoadJson(win, RSS_V2_MODEL_STORAGE_KEY);
-    if (stored && stored.kind === "logreg-binary" && stored.weights) return stored;
+    if (stored && stored.kind === "logreg-binary" && stored.weights)
+      return stored;
     return RSS_V2_DEFAULT_MODEL;
   };
 
@@ -1487,7 +1529,9 @@
         parseSubredditFromUrl(url) ||
         (() => {
           try {
-            const a = element?.querySelector?.('a[href^="/r/"], a[href*="/r/"]');
+            const a = element?.querySelector?.(
+              'a[href^="/r/"], a[href*="/r/"]',
+            );
             return parseSubredditFromUrl(a?.getAttribute?.("href") || "");
           } catch {
             return "";
@@ -1497,8 +1541,12 @@
       const postTitle = (() => {
         try {
           const t =
-            element?.querySelector?.('h1, h2, [data-testid="post-title"], [slot="title"]') ||
-            doc?.querySelector?.('h1, [data-testid="post-title"], [slot="title"]');
+            element?.querySelector?.(
+              'h1, h2, [data-testid="post-title"], [slot="title"]',
+            ) ||
+            doc?.querySelector?.(
+              'h1, [data-testid="post-title"], [slot="title"]',
+            );
           return compactWs(safeText(t)).slice(0, 240);
         } catch {
           return "";
@@ -1508,7 +1556,7 @@
       const permalink = (() => {
         try {
           const a = element?.querySelector?.(
-            'a[href*="/comments/"], a[data-click-id="comments"], a[data-testid="comments-link"]'
+            'a[href*="/comments/"], a[data-click-id="comments"], a[data-testid="comments-link"]',
           );
           return String(a?.getAttribute?.("href") || "");
         } catch {
@@ -1518,8 +1566,16 @@
 
       const kind = (() => {
         try {
-          if (element?.matches?.('div[data-testid="comment"], shreddit-comment')) return "comment";
-          if (element?.matches?.('article, shreddit-post, div[data-testid="post-container"], div.link')) return "post";
+          if (
+            element?.matches?.('div[data-testid="comment"], shreddit-comment')
+          )
+            return "comment";
+          if (
+            element?.matches?.(
+              'article, shreddit-post, div[data-testid="post-container"], div.link',
+            )
+          )
+            return "post";
         } catch {
           // Ignore.
         }
@@ -1537,26 +1593,35 @@
 
     // Hydrate per-user label priors from stored label records.
     try {
-      const recs = Array.isArray(state.v2Labels?.records) ? state.v2Labels.records : [];
+      const recs = Array.isArray(state.v2Labels?.records)
+        ? state.v2Labels.records
+        : [];
       for (const r of recs) {
         if (r?.kind !== "user") continue;
         const u = normalizeUsername(r.username);
-        const label = r.label === "ai" ? "ai" : r.label === "human" ? "human" : null;
+        const label =
+          r.label === "ai" ? "ai" : r.label === "human" ? "human" : null;
         if (u && label) state.v2UserLabel.set(u, label);
       }
     } catch {
       // Ignore.
     }
 
-    const v2SaveModel = () => rssSaveJson(win, RSS_V2_MODEL_STORAGE_KEY, state.v2Model);
-    const v2SaveLabels = () => rssSaveJson(win, RSS_V2_LABELS_STORAGE_KEY, state.v2Labels);
-    const v2SaveModelHistory = () => rssSaveJson(win, RSS_V2_MODEL_HISTORY_STORAGE_KEY, state.v2ModelHistory);
+    const v2SaveModel = () =>
+      rssSaveJson(win, RSS_V2_MODEL_STORAGE_KEY, state.v2Model);
+    const v2SaveLabels = () =>
+      rssSaveJson(win, RSS_V2_LABELS_STORAGE_KEY, state.v2Labels);
+    const v2SaveModelHistory = () =>
+      rssSaveJson(win, RSS_V2_MODEL_HISTORY_STORAGE_KEY, state.v2ModelHistory);
 
     const v2PushModelSnapshot = () => {
       try {
-        state.v2ModelHistory = Array.isArray(state.v2ModelHistory) ? state.v2ModelHistory : [];
+        state.v2ModelHistory = Array.isArray(state.v2ModelHistory)
+          ? state.v2ModelHistory
+          : [];
         state.v2ModelHistory.push({ ...state.v2Model, ts: Date.now() });
-        if (state.v2ModelHistory.length > 40) state.v2ModelHistory = state.v2ModelHistory.slice(-30);
+        if (state.v2ModelHistory.length > 40)
+          state.v2ModelHistory = state.v2ModelHistory.slice(-30);
         v2SaveModelHistory();
       } catch {
         // Ignore.
@@ -1564,7 +1629,9 @@
     };
 
     const v2UndoLastTune = async () => {
-      state.v2ModelHistory = Array.isArray(state.v2ModelHistory) ? state.v2ModelHistory : [];
+      state.v2ModelHistory = Array.isArray(state.v2ModelHistory)
+        ? state.v2ModelHistory
+        : [];
       const prev = state.v2ModelHistory.pop();
       if (!prev) return false;
       // Strip helper fields that may have been added.
@@ -1584,7 +1651,9 @@
     };
 
     const v2AddLabelRecord = (rec) => {
-      state.v2Labels.records = Array.isArray(state.v2Labels.records) ? state.v2Labels.records : [];
+      state.v2Labels.records = Array.isArray(state.v2Labels.records)
+        ? state.v2Labels.records
+        : [];
       state.v2Labels.records.push({ ...rec, ts: Date.now() });
       // Bound storage.
       if (state.v2Labels.records.length > 4000) {
@@ -1594,7 +1663,8 @@
       // Keep an in-memory map of the latest per-user label.
       if (rec?.kind === "user") {
         const u = normalizeUsername(rec.username);
-        const label = rec.label === "ai" ? "ai" : rec.label === "human" ? "human" : null;
+        const label =
+          rec.label === "ai" ? "ai" : rec.label === "human" ? "human" : null;
         if (u && label) state.v2UserLabel.set(u, label);
       }
 
@@ -1603,7 +1673,8 @@
 
     const v2RememberTrainRow = (row) => {
       state.v2TrainBuffer.push(row);
-      if (state.v2TrainBuffer.length > 200) state.v2TrainBuffer = state.v2TrainBuffer.slice(-150);
+      if (state.v2TrainBuffer.length > 200)
+        state.v2TrainBuffer = state.v2TrainBuffer.slice(-150);
     };
 
     const safeHeaderNumber = (headers, name) => {
@@ -1618,7 +1689,9 @@
 
     const readStoredProfile = (username) => {
       try {
-        const raw = win?.localStorage?.getItem?.(`${PROFILE_STORAGE_PREFIX}${username}`);
+        const raw = win?.localStorage?.getItem?.(
+          `${PROFILE_STORAGE_PREFIX}${username}`,
+        );
         if (!raw) return null;
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== "object") return null;
@@ -1627,12 +1700,14 @@
 
         const age = Date.now() - fetchedAt;
         if (parsed.status === "ok") {
-          if (age < PROFILE_CACHE_TTL_MS) return { status: "ok", data: parsed.data ?? null, fetchedAt };
+          if (age < PROFILE_CACHE_TTL_MS)
+            return { status: "ok", data: parsed.data ?? null, fetchedAt };
           return null;
         }
 
         if (parsed.status === "fail") {
-          if (age < PROFILE_FAILURE_TTL_MS) return { status: "fail", data: null, fetchedAt };
+          if (age < PROFILE_FAILURE_TTL_MS)
+            return { status: "fail", data: null, fetchedAt };
           return null;
         }
       } catch {
@@ -1646,7 +1721,7 @@
       try {
         win?.localStorage?.setItem?.(
           `${PROFILE_STORAGE_PREFIX}${username}`,
-          JSON.stringify(payload)
+          JSON.stringify(payload),
         );
       } catch {
         // Ignore quota/private mode.
@@ -1664,7 +1739,7 @@
         } finally {
           state.nextProfileFetchAt = Math.max(
             Date.now() + PROFILE_MIN_INTERVAL_MS,
-            state.ratelimitedUntil
+            state.ratelimitedUntil,
           );
         }
       });
@@ -1689,11 +1764,13 @@
         if (!Number.isFinite(fetchedAt) || fetchedAt <= 0) return null;
         const age = Date.now() - fetchedAt;
         if (parsed.status === "ok") {
-          if (age < HISTORY_CACHE_TTL_MS) return { status: "ok", data: parsed.data ?? null, fetchedAt };
+          if (age < HISTORY_CACHE_TTL_MS)
+            return { status: "ok", data: parsed.data ?? null, fetchedAt };
           return null;
         }
         if (parsed.status === "fail") {
-          if (age < HISTORY_FAILURE_TTL_MS) return { status: "fail", data: null, fetchedAt };
+          if (age < HISTORY_FAILURE_TTL_MS)
+            return { status: "fail", data: null, fetchedAt };
           return null;
         }
       } catch {
@@ -1743,7 +1820,10 @@
         try {
           return await fn();
         } finally {
-          state.nextHistoryFetchAt = Math.max(Date.now() + HISTORY_MIN_INTERVAL_MS, state.ratelimitedUntil);
+          state.nextHistoryFetchAt = Math.max(
+            Date.now() + HISTORY_MIN_INTERVAL_MS,
+            state.ratelimitedUntil,
+          );
         }
       });
       return state.historyQueue;
@@ -1751,7 +1831,10 @@
 
     const safeDomainFromUrl = (rawUrl) => {
       try {
-        const u = new URL(String(rawUrl || ""), win?.location?.origin || "https://www.reddit.com");
+        const u = new URL(
+          String(rawUrl || ""),
+          win?.location?.origin || "https://www.reddit.com",
+        );
         return u.hostname || "";
       } catch {
         return "";
@@ -1761,25 +1844,37 @@
     const computeOverviewHistoryFeatures = (overviewJson) => {
       const children = overviewJson?.data?.children || [];
       const items = children.map((c) => c?.data).filter(Boolean);
-      const created = items.map((i) => Number(i.created_utc)).filter(Number.isFinite).sort((a, b) => a - b);
+      const created = items
+        .map((i) => Number(i.created_utc))
+        .filter(Number.isFinite)
+        .sort((a, b) => a - b);
 
-      const subreddits = new Set(items.map((i) => String(i.subreddit || "").toLowerCase()).filter(Boolean));
+      const subreddits = new Set(
+        items
+          .map((i) => String(i.subreddit || "").toLowerCase())
+          .filter(Boolean),
+      );
       const domains = new Set(
         items
-          .map((i) => safeDomainFromUrl(i.url || i.link_url || i.permalink || ""))
+          .map((i) =>
+            safeDomainFromUrl(i.url || i.link_url || i.permalink || ""),
+          )
           .map((d) => d.toLowerCase())
-          .filter(Boolean)
+          .filter(Boolean),
       );
 
-      const linkPosts = items.filter((i) => typeof i.url === "string" && /^https?:\/\//i.test(i.url)).length;
+      const linkPosts = items.filter(
+        (i) => typeof i.url === "string" && /^https?:\/\//i.test(i.url),
+      ).length;
       const total = items.length;
       const linkRatio = total > 0 ? linkPosts / total : 0;
 
       const avgDeltaHours = (() => {
         if (created.length < 2) return 0;
         let sum = 0;
-        for (let i = 1; i < created.length; i += 1) sum += created[i] - created[i - 1];
-        return (sum / (created.length - 1)) / 3600;
+        for (let i = 1; i < created.length; i += 1)
+          sum += created[i] - created[i - 1];
+        return sum / (created.length - 1) / 3600;
       })();
 
       return {
@@ -1795,15 +1890,23 @@
       const children = commentsJson?.data?.children || [];
       const items = children.map((c) => c?.data).filter(Boolean);
 
-      const subreddits = new Set(items.map((i) => String(i.subreddit || "").toLowerCase()).filter(Boolean));
+      const subreddits = new Set(
+        items
+          .map((i) => String(i.subreddit || "").toLowerCase())
+          .filter(Boolean),
+      );
       const created = items
         .map((i) => Number(i.created_utc))
         .filter(Number.isFinite)
         .sort((a, b) => a - b);
 
       const bodies = items.map((i) => String(i.body || "")).filter(Boolean);
-      const bodyLens = bodies.map((b) => compactWs(b).split(/\s+/).filter(Boolean).length);
-      const bodyAvgWords = bodyLens.length ? bodyLens.reduce((a, b) => a + b, 0) / bodyLens.length : 0;
+      const bodyLens = bodies.map(
+        (b) => compactWs(b).split(/\s+/).filter(Boolean).length,
+      );
+      const bodyAvgWords = bodyLens.length
+        ? bodyLens.reduce((a, b) => a + b, 0) / bodyLens.length
+        : 0;
 
       const templateMaxRepeat = (() => {
         const counts = new Map();
@@ -1818,8 +1921,9 @@
       const avgDeltaHours = (() => {
         if (created.length < 2) return 0;
         let sum = 0;
-        for (let i = 1; i < created.length; i += 1) sum += created[i] - created[i - 1];
-        return (sum / (created.length - 1)) / 3600;
+        for (let i = 1; i < created.length; i += 1)
+          sum += created[i] - created[i - 1];
+        return sum / (created.length - 1) / 3600;
       })();
 
       return {
@@ -1827,7 +1931,9 @@
         histCommentsUniqueSubs: subreddits.size,
         histCommentsAvgWords: Number.isFinite(bodyAvgWords) ? bodyAvgWords : 0,
         histCommentsTemplateMaxRepeat: templateMaxRepeat,
-        histCommentsAvgDeltaHours: Number.isFinite(avgDeltaHours) ? avgDeltaHours : 0,
+        histCommentsAvgDeltaHours: Number.isFinite(avgDeltaHours)
+          ? avgDeltaHours
+          : 0,
       };
     };
 
@@ -1835,12 +1941,18 @@
       const children = submittedJson?.data?.children || [];
       const items = children.map((c) => c?.data).filter(Boolean);
 
-      const subreddits = new Set(items.map((i) => String(i.subreddit || "").toLowerCase()).filter(Boolean));
+      const subreddits = new Set(
+        items
+          .map((i) => String(i.subreddit || "").toLowerCase())
+          .filter(Boolean),
+      );
       const domains = new Set(
         items
-          .map((i) => safeDomainFromUrl(i.url || i.link_url || i.permalink || ""))
+          .map((i) =>
+            safeDomainFromUrl(i.url || i.link_url || i.permalink || ""),
+          )
           .map((d) => d.toLowerCase())
-          .filter(Boolean)
+          .filter(Boolean),
       );
 
       const created = items
@@ -1859,15 +1971,18 @@
         return Math.max(0, ...counts.values());
       })();
 
-      const linkPosts = items.filter((i) => typeof i.url === "string" && /^https?:\/\//i.test(i.url)).length;
+      const linkPosts = items.filter(
+        (i) => typeof i.url === "string" && /^https?:\/\//i.test(i.url),
+      ).length;
       const total = items.length;
       const linkRatio = total > 0 ? linkPosts / total : 0;
 
       const avgDeltaHours = (() => {
         if (created.length < 2) return 0;
         let sum = 0;
-        for (let i = 1; i < created.length; i += 1) sum += created[i] - created[i - 1];
-        return (sum / (created.length - 1)) / 3600;
+        for (let i = 1; i < created.length; i += 1)
+          sum += created[i] - created[i - 1];
+        return sum / (created.length - 1) / 3600;
       })();
 
       return {
@@ -1876,7 +1991,9 @@
         histSubmittedUniqueDomains: domains.size,
         histSubmittedLinkRatio: Number.isFinite(linkRatio) ? linkRatio : 0,
         histSubmittedTitleTemplateMaxRepeat: titleTemplateMaxRepeat,
-        histSubmittedAvgDeltaHours: Number.isFinite(avgDeltaHours) ? avgDeltaHours : 0,
+        histSubmittedAvgDeltaHours: Number.isFinite(avgDeltaHours)
+          ? avgDeltaHours
+          : 0,
       };
     };
 
@@ -1898,7 +2015,11 @@
       }
 
       if (!state.v2Options.enableHistoryFetch) return null;
-      if (getHistoryQuota(u) >= Number(state.v2Options.historyDailyQuotaPerUser || 0)) return null;
+      if (
+        getHistoryQuota(u) >=
+        Number(state.v2Options.historyDailyQuotaPerUser || 0)
+      )
+        return null;
 
       const promise = historyQueueFetch(async () => {
         try {
@@ -1906,27 +2027,63 @@
           const res = await fetchFn(url, { credentials: "include" });
 
           if (res.status === 429) {
-            const resetSeconds = safeHeaderNumber(res.headers, "x-ratelimit-reset");
+            const resetSeconds = safeHeaderNumber(
+              res.headers,
+              "x-ratelimit-reset",
+            );
             const backoffMs = (resetSeconds ?? 120) * 1000;
-            state.ratelimitedUntil = Math.max(state.ratelimitedUntil, Date.now() + backoffMs);
-            state.historyCache.set(cacheKey, { fetchedAt: Date.now(), data: null, promise: null, error: true });
-            writeStoredHistory(u, endpoint, { status: "fail", fetchedAt: Date.now() });
+            state.ratelimitedUntil = Math.max(
+              state.ratelimitedUntil,
+              Date.now() + backoffMs,
+            );
+            state.historyCache.set(cacheKey, {
+              fetchedAt: Date.now(),
+              data: null,
+              promise: null,
+              error: true,
+            });
+            writeStoredHistory(u, endpoint, {
+              status: "fail",
+              fetchedAt: Date.now(),
+            });
             return null;
           }
 
           if (!res.ok) throw new Error(`${endpoint}.json HTTP ${res.status}`);
           const json = await res.json();
-          state.historyCache.set(cacheKey, { fetchedAt: Date.now(), data: json, promise: null, error: false });
-          writeStoredHistory(u, endpoint, { status: "ok", fetchedAt: Date.now(), data: json });
+          state.historyCache.set(cacheKey, {
+            fetchedAt: Date.now(),
+            data: json,
+            promise: null,
+            error: false,
+          });
+          writeStoredHistory(u, endpoint, {
+            status: "ok",
+            fetchedAt: Date.now(),
+            data: json,
+          });
           return json;
         } catch {
-          state.historyCache.set(cacheKey, { fetchedAt: Date.now(), data: null, promise: null, error: true });
-          writeStoredHistory(u, endpoint, { status: "fail", fetchedAt: Date.now() });
+          state.historyCache.set(cacheKey, {
+            fetchedAt: Date.now(),
+            data: null,
+            promise: null,
+            error: true,
+          });
+          writeStoredHistory(u, endpoint, {
+            status: "fail",
+            fetchedAt: Date.now(),
+          });
           return null;
         }
       });
 
-      state.historyCache.set(cacheKey, { fetchedAt: Date.now(), data: null, promise, error: false });
+      state.historyCache.set(cacheKey, {
+        fetchedAt: Date.now(),
+        data: null,
+        promise,
+        error: false,
+      });
       return promise;
     };
 
@@ -1965,16 +2122,22 @@
       // Always start with overview.
       const out = { ...(existing || {}) };
       const overview = await getUserOverviewJson(u);
-      if (overview) Object.assign(out, computeOverviewHistoryFeatures(overview));
+      if (overview)
+        Object.assign(out, computeOverviewHistoryFeatures(overview));
       state.userHistoryLevel.set(u, Math.max(existingLevel, 1));
 
       // Optional extended endpoints.
       if (level >= 2 && state.v2Options.enableExtendedHistoryFetch) {
         const comments = await getUserCommentsJson(u);
-        if (comments) Object.assign(out, computeCommentsHistoryFeatures(comments));
+        if (comments)
+          Object.assign(out, computeCommentsHistoryFeatures(comments));
         const submitted = await getUserSubmittedJson(u);
-        if (submitted) Object.assign(out, computeSubmittedHistoryFeatures(submitted));
-        state.userHistoryLevel.set(u, Math.max(state.userHistoryLevel.get(u) || 0, 2));
+        if (submitted)
+          Object.assign(out, computeSubmittedHistoryFeatures(submitted));
+        state.userHistoryLevel.set(
+          u,
+          Math.max(state.userHistoryLevel.get(u) || 0, 2),
+        );
       }
 
       // If we got nothing useful, don't cache.
@@ -2045,15 +2208,24 @@
 
       const promise = profileQueueFetch(async () => {
         try {
-          const res = await fetchFn(`/user/${encodeURIComponent(u)}/about.json`, {
-            credentials: "include",
-          });
+          const res = await fetchFn(
+            `/user/${encodeURIComponent(u)}/about.json`,
+            {
+              credentials: "include",
+            },
+          );
 
           // Respect Reddit rate limiting.
           if (res.status === 429) {
-            const resetSeconds = safeHeaderNumber(res.headers, "x-ratelimit-reset");
+            const resetSeconds = safeHeaderNumber(
+              res.headers,
+              "x-ratelimit-reset",
+            );
             const backoffMs = (resetSeconds ?? 120) * 1000;
-            state.ratelimitedUntil = Math.max(state.ratelimitedUntil, Date.now() + backoffMs);
+            state.ratelimitedUntil = Math.max(
+              state.ratelimitedUntil,
+              Date.now() + backoffMs,
+            );
 
             state.profileCache.set(u, {
               fetchedAt: Date.now(),
@@ -2068,18 +2240,29 @@
           if (!res.ok) throw new Error(`about.json HTTP ${res.status}`);
 
           // If we're close to the limit, pre-emptively slow down.
-          const remaining = safeHeaderNumber(res.headers, "x-ratelimit-remaining");
-          const resetSeconds = safeHeaderNumber(res.headers, "x-ratelimit-reset");
+          const remaining = safeHeaderNumber(
+            res.headers,
+            "x-ratelimit-remaining",
+          );
+          const resetSeconds = safeHeaderNumber(
+            res.headers,
+            "x-ratelimit-reset",
+          );
           if (remaining !== null && remaining <= 2 && resetSeconds !== null) {
             state.ratelimitedUntil = Math.max(
               state.ratelimitedUntil,
-              Date.now() + resetSeconds * 1000
+              Date.now() + resetSeconds * 1000,
             );
           }
 
           const json = await res.json();
           const data = json?.data;
-          state.profileCache.set(u, { fetchedAt: Date.now(), data, promise: null, error: false });
+          state.profileCache.set(u, {
+            fetchedAt: Date.now(),
+            data,
+            promise: null,
+            error: false,
+          });
           writeStoredProfile(u, { status: "ok", fetchedAt: Date.now(), data });
           return data || null;
         } catch {
@@ -2094,7 +2277,12 @@
         }
       });
 
-      state.profileCache.set(u, { fetchedAt: Date.now(), data: null, promise, error: false });
+      state.profileCache.set(u, {
+        fetchedAt: Date.now(),
+        data: null,
+        promise,
+        error: false,
+      });
       return promise;
     };
 
@@ -2106,7 +2294,8 @@
       root.className = "rss-fixed rss-bottom-4 rss-right-4";
 
       const gearBtn = doc.createElement("button");
-      gearBtn.className = "rss-gear rss-select-none rss-cursor-pointer rss-focus-ring";
+      gearBtn.className =
+        "rss-gear rss-select-none rss-cursor-pointer rss-focus-ring";
       gearBtn.type = "button";
       gearBtn.title = "RedditSlopSleuth";
       gearBtn.textContent = "⚙️";
@@ -2131,7 +2320,7 @@
       doc.body.appendChild(popover);
       state.popoverEl = popover;
 
-        const render = () => {
+      const render = () => {
         const selected = state.selectedEntryId
           ? state.entries.get(state.selectedEntryId)
           : null;
@@ -2142,12 +2331,14 @@
           human: 0,
           unknown: 0,
         };
-        for (const e of state.entries.values()) counts[e.classification.kind] += 1;
+        for (const e of state.entries.values())
+          counts[e.classification.kind] += 1;
 
         drawer.innerHTML = "";
 
         const header = doc.createElement("div");
-        header.className = "rss-flex rss-justify-between rss-items-center rss-p-4";
+        header.className =
+          "rss-flex rss-justify-between rss-items-center rss-p-4";
         header.innerHTML = `
           <div>
             <div class="rss-font-bold rss-text-base">RedditSlopSleuth</div>
@@ -2163,7 +2354,8 @@
         header.appendChild(closeBtn);
 
         const body = doc.createElement("div");
-        body.className = "rss-p-4 rss-flex rss-flex-col rss-gap-3 rss-overflow-auto rss-max-h-80vh";
+        body.className =
+          "rss-p-4 rss-flex rss-flex-col rss-gap-3 rss-overflow-auto rss-max-h-80vh";
 
         const details = doc.createElement("div");
         details.className = "rss-row";
@@ -2192,9 +2384,30 @@
 
           const pills = doc.createElement("div");
           pills.className = "rss-flex rss-gap-2";
-          pills.appendChild(pill("Bot", fmtThresholdProgress(selected.scores.bot, HARD_CODED_THRESHOLDS.bot)));
-          pills.appendChild(pill("AI", fmtThresholdProgress(selected.scores.ai, HARD_CODED_THRESHOLDS.ai)));
-          pills.appendChild(pill("Profile", fmtScore(selected.scores.profile, { signed: true })));
+          pills.appendChild(
+            pill(
+              "Bot",
+              fmtThresholdProgress(
+                selected.scores.bot,
+                HARD_CODED_THRESHOLDS.bot,
+              ),
+            ),
+          );
+          pills.appendChild(
+            pill(
+              "AI",
+              fmtThresholdProgress(
+                selected.scores.ai,
+                HARD_CODED_THRESHOLDS.ai,
+              ),
+            ),
+          );
+          pills.appendChild(
+            pill(
+              "Profile",
+              fmtScore(selected.scores.profile, { signed: true }),
+            ),
+          );
           top.appendChild(pills);
 
           const meters = doc.createElement("div");
@@ -2220,8 +2433,14 @@
             return wrap;
           };
 
-          const botRatio = ratioToThreshold(selected.scores.bot, HARD_CODED_THRESHOLDS.bot);
-          const aiRatio = ratioToThreshold(selected.scores.ai, HARD_CODED_THRESHOLDS.ai);
+          const botRatio = ratioToThreshold(
+            selected.scores.bot,
+            HARD_CODED_THRESHOLDS.bot,
+          );
+          const aiRatio = ratioToThreshold(
+            selected.scores.ai,
+            HARD_CODED_THRESHOLDS.ai,
+          );
           const overallRatio = Math.max(botRatio, aiRatio);
 
           // Overall is the max of "how close are we" to either bot/AI thresholds.
@@ -2242,7 +2461,7 @@
               wrap.appendChild(row);
               wrap.appendChild(track);
               return wrap;
-            })()
+            })(),
           );
 
           meters.appendChild(
@@ -2251,7 +2470,7 @@
               value: selected.scores.bot,
               threshold: HARD_CODED_THRESHOLDS.bot,
               meterKind: "bot",
-            })
+            }),
           );
           meters.appendChild(
             makeMeter({
@@ -2259,7 +2478,7 @@
               value: selected.scores.ai,
               threshold: HARD_CODED_THRESHOLDS.ai,
               meterKind: "ai",
-            })
+            }),
           );
 
           top.appendChild(meters);
@@ -2287,7 +2506,10 @@
           scrollBtn.className = "rss-btn rss-btn-primary rss-focus-ring";
           scrollBtn.textContent = "Scroll to item";
           scrollBtn.addEventListener("click", () => {
-            selected.element?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+            selected.element?.scrollIntoView?.({
+              behavior: "smooth",
+              block: "center",
+            });
           });
           btnRow.appendChild(scrollBtn);
 
@@ -2321,7 +2543,10 @@
             row.addEventListener("click", () => {
               state.selectedEntryId = e.id;
               render();
-              e.element?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+              e.element?.scrollIntoView?.({
+                behavior: "smooth",
+                block: "center",
+              });
             });
             listBody.appendChild(row);
           }
@@ -2338,7 +2563,9 @@
             userHuman: 0,
             userAi: 0,
           };
-          const recs = Array.isArray(state.v2Labels?.records) ? state.v2Labels.records : [];
+          const recs = Array.isArray(state.v2Labels?.records)
+            ? state.v2Labels.records
+            : [];
           for (const r of recs) {
             if (r?.kind === "item") {
               if (r.label === "human") c.itemHuman += 1;
@@ -2372,8 +2599,13 @@
         })();
 
         const evalSummary = (() => {
-          const recs = Array.isArray(state.v2Labels?.records) ? state.v2Labels.records : [];
-          const items = recs.filter((r) => r?.kind === "item" && (r.label === "ai" || r.label === "human"));
+          const recs = Array.isArray(state.v2Labels?.records)
+            ? state.v2Labels.records
+            : [];
+          const items = recs.filter(
+            (r) =>
+              r?.kind === "item" && (r.label === "ai" || r.label === "human"),
+          );
           if (!items.length) return "no item labels";
 
           const evalAt = (threshold) => {
@@ -2383,7 +2615,9 @@
             let fn = 0;
 
             for (const r of items) {
-              const feats = r?.features || (r?.text ? pickMlFeaturesFromText(r.text) : null);
+              const feats =
+                r?.features ||
+                (r?.text ? pickMlFeaturesFromText(r.text) : null);
               if (!feats) continue;
               const p = rssPredictAiProba(state.v2Model, feats);
               const predAi = p >= threshold;
@@ -2484,7 +2718,9 @@
             e.preventDefault();
             e.stopPropagation();
             const kind = btn.getAttribute("data-rss-v2-import");
-            const raw = promptPaste(kind === "labels" ? "Import labels" : "Import model");
+            const raw = promptPaste(
+              kind === "labels" ? "Import labels" : "Import model",
+            );
             if (!raw) return;
 
             let parsed;
@@ -2495,7 +2731,12 @@
             }
 
             if (kind === "labels") {
-              if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.records)) return;
+              if (
+                !parsed ||
+                typeof parsed !== "object" ||
+                !Array.isArray(parsed.records)
+              )
+                return;
               state.v2Labels = parsed;
 
               // Rebuild in-memory user priors.
@@ -2503,7 +2744,12 @@
               for (const r of parsed.records) {
                 if (r?.kind !== "user") continue;
                 const u = normalizeUsername(r.username);
-                const label = r.label === "ai" ? "ai" : r.label === "human" ? "human" : null;
+                const label =
+                  r.label === "ai"
+                    ? "ai"
+                    : r.label === "human"
+                      ? "human"
+                      : null;
                 if (u && label) state.v2UserLabel.set(u, label);
               }
 
@@ -2534,11 +2780,13 @@
           });
         });
 
-        v2Panel.querySelector("[data-rss-v2-undo=\"model\"]")?.addEventListener("click", async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          await v2UndoLastTune();
-        });
+        v2Panel
+          .querySelector('[data-rss-v2-undo="model"]')
+          ?.addEventListener("click", async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            await v2UndoLastTune();
+          });
 
         v2Panel.querySelectorAll("[data-rss-v2-reset]").forEach((btn) => {
           btn.addEventListener("click", async (e) => {
@@ -2622,7 +2870,9 @@
       const findBadgeFromEvent = (e) => {
         const path = (() => {
           try {
-            return typeof e?.composedPath === "function" ? e.composedPath() : null;
+            return typeof e?.composedPath === "function"
+              ? e.composedPath()
+              : null;
           } catch {
             return null;
           }
@@ -2668,7 +2918,7 @@
             // Keep the drawer UI in sync if it's open.
             if (state.open) state.ui?.render?.();
           },
-          true
+          true,
         );
 
         win.addEventListener(
@@ -2686,7 +2936,7 @@
             setPopover({ badgeEl, entry, show: true });
             if (state.open) state.ui?.render?.();
           },
-          true
+          true,
         );
 
         win.addEventListener(
@@ -2697,7 +2947,7 @@
             if (!badgeEl) return;
             schedulePopoverHide(120);
           },
-          true
+          true,
         );
       }
 
@@ -2741,7 +2991,7 @@
       t.style.display = "block";
     };
 
-      const setPopover = ({ badgeEl, entry, show }) => {
+    const setPopover = ({ badgeEl, entry, show }) => {
       const pop = state.popoverEl;
       if (!pop) return;
       if (!show || !entry) {
@@ -2758,9 +3008,13 @@
 
       const ml = entry.ml || null;
       const mlTop = ml?.top || [];
-      const mlPct = ml && Number.isFinite(ml.pAi) ? Math.round(ml.pAi * 100) : null;
+      const mlPct =
+        ml && Number.isFinite(ml.pAi) ? Math.round(ml.pAi * 100) : null;
       const userAgg = entry.ml?.userAgg || null;
-      const userPct = userAgg && Number.isFinite(userAgg.meanPAi) ? Math.round(userAgg.meanPAi * 100) : null;
+      const userPct =
+        userAgg && Number.isFinite(userAgg.meanPAi)
+          ? Math.round(userAgg.meanPAi * 100)
+          : null;
       const userLabel = state.v2UserLabel.get(entry.username) || null;
 
       const escapeHtml = (s) =>
@@ -2768,8 +3022,14 @@
           .replace(/&/g, "&amp;")
           .replace(/</g, "&lt;")
           .replace(/>/g, "&gt;");
-      const botRatio = ratioToThreshold(entry.scores.bot, HARD_CODED_THRESHOLDS.bot);
-      const aiRatio = ratioToThreshold(entry.scores.ai, HARD_CODED_THRESHOLDS.ai);
+      const botRatio = ratioToThreshold(
+        entry.scores.bot,
+        HARD_CODED_THRESHOLDS.bot,
+      );
+      const aiRatio = ratioToThreshold(
+        entry.scores.ai,
+        HARD_CODED_THRESHOLDS.ai,
+      );
       const overallRatio = Math.max(botRatio, aiRatio);
       const overallPct = Math.round(overallRatio * 100);
       const botPct = Math.round(botRatio * 100);
@@ -2816,12 +3076,14 @@
         <ul class="rss-why">${reasons.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>
       `;
 
-      pop.querySelector(".rss-popover-close")?.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        pop.style.display = "none";
-        state.activePopoverEntryId = null;
-      });
+      pop
+        .querySelector(".rss-popover-close")
+        ?.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          pop.style.display = "none";
+          state.activePopoverEntryId = null;
+        });
 
       // Label buttons.
       const safeCopy = async (text) => {
@@ -2843,10 +3105,15 @@
           if (label === "human" || label === "ai") {
             const y = label === "ai";
             v2PushModelSnapshot();
-            state.v2Model = rssTrainStep(state.v2Model, entry.ml?.features || {}, y, {
-              lr: 0.06,
-              l2: 1e-4,
-            });
+            state.v2Model = rssTrainStep(
+              state.v2Model,
+              entry.ml?.features || {},
+              y,
+              {
+                lr: 0.06,
+                l2: 1e-4,
+              },
+            );
             v2SaveModel();
           }
 
@@ -2863,7 +3130,14 @@
           await refreshAllBadges();
 
           // Best-effort clipboard export of just this label.
-          await safeCopy(JSON.stringify({ kind: "item", label, username: entry.username, entryId: entry.id }));
+          await safeCopy(
+            JSON.stringify({
+              kind: "item",
+              label,
+              username: entry.username,
+              entryId: entry.id,
+            }),
+          );
         });
       });
 
@@ -2877,36 +3151,42 @@
           // Recompute entries to reflect new user prior.
           await refreshAllBadges();
 
-          await safeCopy(JSON.stringify({ kind: "user", label, username: entry.username }));
+          await safeCopy(
+            JSON.stringify({ kind: "user", label, username: entry.username }),
+          );
         });
       });
 
-      pop.querySelector("[data-rss-export-labels]")?.addEventListener("click", async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const json = JSON.stringify(state.v2Labels, null, 2);
-        await safeCopy(json);
-      });
+      pop
+        .querySelector("[data-rss-export-labels]")
+        ?.addEventListener("click", async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const json = JSON.stringify(state.v2Labels, null, 2);
+          await safeCopy(json);
+        });
 
-      pop.querySelector("[data-rss-export-train]")?.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const row = {
-          kind: "rss-train-data",
-          url: entry?.context?.url || String(win?.location?.href || ""),
-          username: entry.username,
-          entryId: entry.id,
-          context: entry.context || null,
-          text: String(entry.text || ""),
-          features: entry.ml?.features || null,
-        };
-        try {
-          // eslint-disable-next-line no-console
-          console.log("RSS-train-data", row);
-        } catch {
-          // Ignore.
-        }
-      });
+      pop
+        .querySelector("[data-rss-export-train]")
+        ?.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const row = {
+            kind: "rss-train-data",
+            url: entry?.context?.url || String(win?.location?.href || ""),
+            username: entry.username,
+            entryId: entry.id,
+            context: entry.context || null,
+            text: String(entry.text || ""),
+            features: entry.ml?.features || null,
+          };
+          try {
+            // eslint-disable-next-line no-console
+            console.log("RSS-train-data", row);
+          } catch {
+            // Ignore.
+          }
+        });
 
       // Show first, then position with measured size.
       pop.style.display = "block";
@@ -2944,7 +3224,9 @@
     const resolveFeedInsertionEl = (container) => {
       return (
         // Prefer the hovercard host itself; inserting inside its slotted structure can get hidden.
-        container.querySelector?.('faceplate-hovercard[data-id="community-hover-card"], faceplate-hovercard') ||
+        container.querySelector?.(
+          'faceplate-hovercard[data-id="community-hover-card"], faceplate-hovercard',
+        ) ||
         container.querySelector?.('[data-testid="subreddit-name"]') ||
         container.querySelector?.('[slot="credit-bar"]') ||
         container.querySelector?.("shreddit-post-overflow-menu") ||
@@ -2956,15 +3238,18 @@
       if (!authorEl) return false;
 
       const rplHover = closestAcrossShadow(win, authorEl, "rpl-hovercard");
-      if (rplHover?.nextElementSibling?.getAttribute?.(BADGE_ATTR) === "true") return true;
+      if (rplHover?.nextElementSibling?.getAttribute?.(BADGE_ATTR) === "true")
+        return true;
 
       const authorMeta = authorEl.closest?.(".author-name-meta");
-      if (authorMeta?.nextElementSibling?.getAttribute?.(BADGE_ATTR) === "true") return true;
+      if (authorMeta?.nextElementSibling?.getAttribute?.(BADGE_ATTR) === "true")
+        return true;
 
       const nowrap = authorEl.querySelector?.(".whitespace-nowrap");
       if (nowrap?.querySelector?.(`[${BADGE_ATTR}="true"]`)) return true;
 
-      if (authorEl.nextElementSibling?.getAttribute?.(BADGE_ATTR) === "true") return true;
+      if (authorEl.nextElementSibling?.getAttribute?.(BADGE_ATTR) === "true")
+        return true;
 
       return false;
     };
@@ -3014,7 +3299,9 @@
       let pAi = rssPredictAiProba(state.v2Model, mlFeatures);
 
       // Pull history features only when needed (uncertain band) to reduce requests and speed.
-      const desiredHistoryLevel = state.v2Options.enableExtendedHistoryFetch ? 2 : 1;
+      const desiredHistoryLevel = state.v2Options.enableExtendedHistoryFetch
+        ? 2
+        : 1;
       const needHist =
         state.v2Options.enableHistoryFetch &&
         pAi >= 0.55 &&
@@ -3022,7 +3309,9 @@
         (state.userHistoryLevel.get(username) || 0) < desiredHistoryLevel;
 
       if (needHist) {
-        const hist = await ensureUserHistoryFeatures(username, { level: desiredHistoryLevel });
+        const hist = await ensureUserHistoryFeatures(username, {
+          level: desiredHistoryLevel,
+        });
         if (hist) {
           Object.assign(mlFeatures, hist);
           pAi = rssPredictAiProba(state.v2Model, mlFeatures);
@@ -3079,9 +3368,13 @@
       });
 
       // v2: collapse "bot" into "ai" and allow ML to promote/demote.
-      if (classification.kind === "bot") classification = { kind: "ai", emoji: "🧠" };
+      if (classification.kind === "bot")
+        classification = { kind: "ai", emoji: "🧠" };
 
-      if (combinedPAi >= RSS_V2_THRESHOLDS.itemAi || userAgg.meanPAi >= RSS_V2_THRESHOLDS.userAi) {
+      if (
+        combinedPAi >= RSS_V2_THRESHOLDS.itemAi ||
+        userAgg.meanPAi >= RSS_V2_THRESHOLDS.userAi
+      ) {
         classification = { kind: "ai", emoji: "🧠" };
       } else {
         // Only allow ✅ if both ML and heuristics are low and profile is strong.
@@ -3121,11 +3414,18 @@
       // a 2-pass aggregator so every entry sees the same per-user mean.
       const prevAgg = state.v2UserAgg.get(username) || { n: 0, meanPAi: 0 };
       const n1 = prevAgg.n + 1;
-      const mean1 = prevAgg.n === 0 ? base.ml.pAi : prevAgg.meanPAi + (base.ml.pAi - prevAgg.meanPAi) / n1;
+      const mean1 =
+        prevAgg.n === 0
+          ? base.ml.pAi
+          : prevAgg.meanPAi + (base.ml.pAi - prevAgg.meanPAi) / n1;
       const agg = { n: n1, meanPAi: clamp(mean1, 0, 1) };
       state.v2UserAgg.set(username, agg);
 
-      const finalized = await finalizeEntryClassification({ username, base, userAgg: agg });
+      const finalized = await finalizeEntryClassification({
+        username,
+        base,
+        userAgg: agg,
+      });
 
       // Keep a training row buffer for ad-hoc console export.
       v2RememberTrainRow({
@@ -3190,7 +3490,12 @@
       state.entries.set(entryId, entry);
 
       // Compute asynchronously (may fetch profile).
-      const computed = await computeEntry({ element, authorEl, username: u, text });
+      const computed = await computeEntry({
+        element,
+        authorEl,
+        username: u,
+        text,
+      });
       entry.scores = computed.scores;
       entry.reasons = computed.reasons;
       entry.classification = computed.classification;
@@ -3315,11 +3620,14 @@
       const findAuthorEl = (container) => {
         // Prefer the visible handle link in comment meta blocks (avoid the avatar link).
         const authorMetaTextLink = container.querySelector?.(
-          '.author-name-meta a[href^="/user/"], .author-name-meta a[href^="/u/"]'
+          '.author-name-meta a[href^="/user/"], .author-name-meta a[href^="/u/"]',
         );
         if (
           authorMetaTextLink &&
-          !(textSelForMentionFiltering && authorMetaTextLink.closest?.(textSelForMentionFiltering))
+          !(
+            textSelForMentionFiltering &&
+            authorMetaTextLink.closest?.(textSelForMentionFiltering)
+          )
         ) {
           return authorMetaTextLink;
         }
@@ -3328,27 +3636,39 @@
           const el = container.querySelector(sel);
           if (!el) continue;
           // Avoid u/mentions inside the body text.
-          if (textSelForMentionFiltering && el.closest?.(textSelForMentionFiltering)) continue;
+          if (
+            textSelForMentionFiltering &&
+            el.closest?.(textSelForMentionFiltering)
+          )
+            continue;
           // Avoid links inside hovercard content slots (not the visible author handle).
           if (el.closest?.('[slot="content"]')) continue;
           // Avoid user links inside overflow menus.
           if (el.closest?.("shreddit-post-overflow-menu")) continue;
           // Avoid avatar-only profile links (common in comments).
           const visibleText = compactWs(safeText(el));
-          if (!visibleText && el.querySelector?.("img, faceplate-img, svg")) continue;
+          if (!visibleText && el.querySelector?.("img, faceplate-img, svg"))
+            continue;
           return el;
         }
 
         // Final fallback: first user link not in body text.
         const candidates = Array.from(
-          container.querySelectorAll('a[href^="/user/"], a[href^="/u/"], a[href*="/user/"], a[href*="/u/"]')
+          container.querySelectorAll(
+            'a[href^="/user/"], a[href^="/u/"], a[href*="/user/"], a[href*="/u/"]',
+          ),
         );
         for (const el of candidates) {
-          if (textSelForMentionFiltering && el.closest?.(textSelForMentionFiltering)) continue;
+          if (
+            textSelForMentionFiltering &&
+            el.closest?.(textSelForMentionFiltering)
+          )
+            continue;
           if (el.closest?.('[slot="content"]')) continue;
           if (el.closest?.("shreddit-post-overflow-menu")) continue;
           const visibleText = compactWs(safeText(el));
-          if (!visibleText && el.querySelector?.("img, faceplate-img, svg")) continue;
+          if (!visibleText && el.querySelector?.("img, faceplate-img, svg"))
+            continue;
           return el;
         }
         return null;
@@ -3356,7 +3676,9 @@
 
       for (const node of nodes) {
         if (!(node instanceof win.HTMLElement)) continue;
-        const hasBadge = Boolean(node.querySelector?.(`[${BADGE_ATTR}="true"]`));
+        const hasBadge = Boolean(
+          node.querySelector?.(`[${BADGE_ATTR}="true"]`),
+        );
         const processed = node.getAttribute(PROCESSED_ATTR) === "true";
 
         // Some parts of Reddit re-render and can remove our injected badge while keeping the same
@@ -3371,7 +3693,11 @@
         }
 
         // Skip injecting into our own UI.
-        if (node.closest?.(`#${UI_ROOT_ID}, .rss-drawer, .rss-overlay, .rss-tooltip, .rss-popover`)) {
+        if (
+          node.closest?.(
+            `#${UI_ROOT_ID}, .rss-drawer, .rss-overlay, .rss-tooltip, .rss-popover`,
+          )
+        ) {
           continue;
         }
 
@@ -3382,7 +3708,8 @@
         // (avatars, hovercards, etc.) that are NOT the author. Prefer overflow-menu author-name.
         const hiddenAuthor = resolveHiddenPostAuthor(node);
         if (hiddenAuthor) {
-          const visibleMatches = username && normalizeUsername(username) === hiddenAuthor;
+          const visibleMatches =
+            username && normalizeUsername(username) === hiddenAuthor;
           if (!visibleMatches) {
             username = hiddenAuthor;
             authorEl =
@@ -3418,12 +3745,18 @@
 
       // Pass 1: compute per-entry base scores + ML p(AI), and build per-user aggregates.
       for (const entry of state.entries.values()) {
-        const base = await computeEntryBase({ username: entry.username, text: entry.text });
+        const base = await computeEntryBase({
+          username: entry.username,
+          text: entry.text,
+        });
         baseById.set(entry.id, base);
 
         const prev = tmpAgg.get(entry.username) || { n: 0, meanPAi: 0 };
         const n1 = prev.n + 1;
-        const mean1 = prev.n === 0 ? base.ml.pAi : prev.meanPAi + (base.ml.pAi - prev.meanPAi) / n1;
+        const mean1 =
+          prev.n === 0
+            ? base.ml.pAi
+            : prev.meanPAi + (base.ml.pAi - prev.meanPAi) / n1;
         tmpAgg.set(entry.username, { n: n1, meanPAi: clamp(mean1, 0, 1) });
       }
 
@@ -3436,8 +3769,15 @@
           (async () => {
             const base = baseById.get(entry.id);
             if (!base) return;
-            const agg = state.v2UserAgg.get(entry.username) || { n: 0, meanPAi: base.ml.pAi };
-            const computed = await finalizeEntryClassification({ username: entry.username, base, userAgg: agg });
+            const agg = state.v2UserAgg.get(entry.username) || {
+              n: 0,
+              meanPAi: base.ml.pAi,
+            };
+            const computed = await finalizeEntryClassification({
+              username: entry.username,
+              base,
+              userAgg: agg,
+            });
 
             entry.scores = computed.scores;
             entry.reasons = computed.reasons;
@@ -3457,7 +3797,7 @@
                 <div><b>Bot</b>: ${fmtThresholdProgress(entry.scores.bot, HARD_CODED_THRESHOLDS.bot)} · <b>AI</b>: ${fmtThresholdProgress(entry.scores.ai, HARD_CODED_THRESHOLDS.ai)} · <b>Profile</b>: ${fmtScore(entry.scores.profile, { signed: true })}</div>
               `;
             }
-          })()
+          })(),
         );
       }
       await Promise.all(tasks);
@@ -3530,6 +3870,10 @@
   if (typeof window === "undefined" || typeof document === "undefined") return;
   if (!document.body) return;
 
-  const engine = createRedditSlopSleuth({ win: window, doc: document, fetchFn: window.fetch });
+  const engine = createRedditSlopSleuth({
+    win: window,
+    doc: document,
+    fetchFn: window.fetch,
+  });
   engine.start();
 })();
