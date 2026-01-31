@@ -3359,6 +3359,10 @@
     const finalizeEntryClassification = async ({ username, base, userAgg }) => {
       const userLabel = state.v2UserLabel.get(username) || null;
 
+      // v2 guardrail: only let the per-user aggregate promote a user after we have
+      // a few samples. This prevents one spicy/long comment from tagging a user.
+      const USER_AI_MIN_SAMPLES = 3;
+
       // Combine item+user probabilities.
       const combinedPAi = (() => {
         if (userLabel === "ai") return 0.95;
@@ -3383,9 +3387,15 @@
       if (classification.kind === "bot")
         classification = { kind: "ai", emoji: "🧠" };
 
+      const approxWordCount = (base.ml.features?.wordCount || 0) * 600;
+      const mlHasEnoughText = approxWordCount >= 30;
+      const userAggEligible = (userAgg?.n || 0) >= USER_AI_MIN_SAMPLES;
+      const userAggHigh =
+        userAggEligible && userAgg.meanPAi >= RSS_V2_THRESHOLDS.userAi;
+
       if (
-        combinedPAi >= RSS_V2_THRESHOLDS.itemAi ||
-        userAgg.meanPAi >= RSS_V2_THRESHOLDS.userAi
+        (combinedPAi >= RSS_V2_THRESHOLDS.itemAi && mlHasEnoughText) ||
+        userAggHigh
       ) {
         classification = { kind: "ai", emoji: "🧠" };
       } else {
