@@ -26,6 +26,20 @@ Output format:
 
 ## Scripts
 
+0) Convert public datasets into the raw JSONL schema.
+
+- GRiD provides a CSV with columns like `Data` and `Label` (0 human, 1 GPT):
+
+```bash
+node train/convert-grid-csv-to-raw-jsonl.js --in ./data/grid.csv --out ./data/grid.raw.jsonl
+```
+
+- HC3 exports vary by tool; this converter accepts JSON or JSONL and looks for `human_answers[]` / `chatgpt_answers[]`:
+
+```bash
+node train/convert-hc3-to-raw-jsonl.js --in ./data/hc3.json --out ./data/hc3.raw.jsonl
+```
+
 1) Featurize raw JSONL into engineered feature vectors:
 
 ```bash
