@@ -1276,6 +1276,11 @@
     pickMlFeaturesFromText,
     normalizeForNearDuplicate,
     normalizeLineTemplate,
+    // The userscript is a single file, so offline tooling can import it and access
+    // the shipped model without needing to parse source text.
+    // NOTE: RSS_V2_DEFAULT_MODEL is declared later; this function is safe as long as
+    // it's called after module init.
+    getDefaultModel: () => RSS_V2_DEFAULT_MODEL,
   };
 
   // `botScore` is the bot-ish score *excluding* profile (username + botText).
