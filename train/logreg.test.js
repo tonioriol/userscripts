@@ -16,5 +16,18 @@ describe("train/logreg", () => {
     expect(pAi).toBeGreaterThan(0.8);
     expect(pHuman).toBeLessThan(0.2);
   });
-});
 
+  it("produces finite probabilities", () => {
+    const model = trainLogReg(
+      [
+        { x: { a: 1 }, y: true },
+        { x: { a: 0 }, y: false },
+      ],
+      { epochs: 3, lr: 0.1, l2: 0, shuffle: false }
+    );
+    const p = predictProba(model, { a: 1 });
+    expect(Number.isFinite(p)).toBe(true);
+    expect(p).toBeGreaterThanOrEqual(0);
+    expect(p).toBeLessThanOrEqual(1);
+  });
+});

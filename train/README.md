@@ -40,3 +40,8 @@ node train/train-from-jsonl.js --in ./data/features.jsonl --out ./train/model.js
 
 The resulting [`train/model.json`](model.json:1) is intended to be embedded into [`redditslopsleuth.user.js`](../redditslopsleuth.user.js:1) as the shipped pretrained weights.
 
+3) Embed the model into the userscript as the shipped default:
+
+```bash
+node train/embed-model-into-userscript.js --model ./train/model.json --userscript ./redditslopsleuth.user.js
+```
