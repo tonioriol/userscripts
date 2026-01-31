@@ -1231,36 +1231,42 @@
       return clamp(n, min, max);
     };
 
+    // IMPORTANT: keep feature magnitudes small.
+    // This prevents training from producing extremely large weights (which would saturate
+    // probabilities to ~0/~1 and create lots of false positives that thresholds cannot fix).
+    const scale01 = (v, max) => {
+      const n = capNum(v, { min: 0, max });
+      if (!Number.isFinite(n) || !Number.isFinite(max) || max <= 0) return 0;
+      return n / max;
+    };
+
     const englishStyleEnabled = Boolean(f.englishLike) && f.wordCount >= 20;
 
     return {
       // Size/structure
-      wordCount: capNum(f.wordCount, { min: 0, max: 600 }),
-      sentenceCount: capNum(f.sentenceCount, { min: 0, max: 40 }),
-      sentenceAvgLen: capNum(f.sentenceAvgLen, { min: 0, max: 50 }),
-      sentenceLenVariance: capNum(f.sentenceLenVariance, { min: 0, max: 250 }),
-      listLineCount: capNum(f.listLineCount, { min: 0, max: 30 }),
-      mdHeadingCount: capNum(f.mdHeadingCount, { min: 0, max: 20 }),
-      headingishLineCount: capNum(f.headingishLineCount, { min: 0, max: 20 }),
-      revisionMarkerCount: capNum(f.revisionMarkerCount, { min: 0, max: 10 }),
-      templateMaxRepeatCount: capNum(f.templateMaxRepeatCount, {
-        min: 0,
-        max: 10,
-      }),
+      wordCount: scale01(f.wordCount, 600),
+      sentenceCount: scale01(f.sentenceCount, 40),
+      sentenceAvgLen: scale01(f.sentenceAvgLen, 50),
+      sentenceLenVariance: scale01(f.sentenceLenVariance, 250),
+      listLineCount: scale01(f.listLineCount, 30),
+      mdHeadingCount: scale01(f.mdHeadingCount, 20),
+      headingishLineCount: scale01(f.headingishLineCount, 20),
+      revisionMarkerCount: scale01(f.revisionMarkerCount, 10),
+      templateMaxRepeatCount: scale01(f.templateMaxRepeatCount, 10),
 
       // Artifacts
-      linkCount: capNum(f.linkCount, { min: 0, max: 12 }),
-      numberTokenCount: capNum(f.numberTokenCount, { min: 0, max: 80 }),
+      linkCount: scale01(f.linkCount, 12),
+      numberTokenCount: scale01(f.numberTokenCount, 80),
       emojiPresent: f.emojiPresent ? 1 : 0,
 
       // Style (may be gated later in v2)
-      englishStopwordHits: capNum(f.englishStopwordHits, { min: 0, max: 80 }),
+      englishStopwordHits: scale01(f.englishStopwordHits, 80),
       englishLike: f.englishLike ? 1 : 0,
       contractionHitCount: englishStyleEnabled
-        ? capNum(f.contractionHitCount, { min: 0, max: 40 })
+        ? scale01(f.contractionHitCount, 40)
         : 0,
       contractionsPer100Words: englishStyleEnabled
-        ? capNum(f.contractionsPer100Words, { min: 0, max: 20 })
+        ? scale01(f.contractionsPer100Words, 20)
         : 0,
     };
   };
@@ -1335,24 +1341,24 @@
   "version": 1,
   "kind": "logreg-binary",
   "weights": {
-    "wordCount": -11.206026770285568,
-    "sentenceCount": -163.39428650301016,
-    "sentenceAvgLen": -20.528797048272587,
-    "sentenceLenVariance": -15.530485190830357,
-    "templateMaxRepeatCount": -20.61566276635274,
-    "englishStopwordHits": 148.452074686856,
-    "englishLike": 0.5897584682480486,
-    "numberTokenCount": -47.38189294883496,
-    "contractionHitCount": 37.16292621694139,
-    "contractionsPer100Words": -4.0605196914871176,
-    "headingishLineCount": 469.21693855502593,
-    "listLineCount": 258.4669183006541,
-    "linkCount": -37.21260912688075,
-    "revisionMarkerCount": -2.878146089613859,
-    "mdHeadingCount": -0.5997865667000167,
-    "emojiPresent": -0.5399704785183097
+    "wordCount": -7.617741454542536,
+    "sentenceCount": -6.953110027999409,
+    "sentenceAvgLen": -0.06245177536360097,
+    "sentenceLenVariance": -4.401590119342886,
+    "templateMaxRepeatCount": -0.022477675694460447,
+    "englishStopwordHits": 10.649736940649584,
+    "englishLike": 1.7328167637189749,
+    "numberTokenCount": -3.991687737682252,
+    "contractionHitCount": 0.8896882504701691,
+    "contractionsPer100Words": 1.0028455333114201,
+    "headingishLineCount": 13.384913445334142,
+    "listLineCount": 7.857004660348801,
+    "linkCount": -2.6238856170709823,
+    "revisionMarkerCount": -0.2503095964983358,
+    "mdHeadingCount": -0.06123094234081582,
+    "emojiPresent": -0.4294429580414266
   },
-  "bias": -215.71203647519448
+  "bias": -2.905423698503971
 };
 
   const RSS_V2_THRESHOLDS = {
