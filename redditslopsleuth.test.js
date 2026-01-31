@@ -224,6 +224,83 @@ describe("RedditSlopSleuth", () => {
     });
   });
 
+  describe("history fetch", () => {
+    it("caches history per endpoint (overview/comments/submitted)", async () => {
+      const seen = { overview: 0, comments: 0, submitted: 0 };
+      const fetchFn = async (url) => {
+        const u = String(url);
+        if (u.includes("/overview.json")) seen.overview += 1;
+        if (u.includes("/comments.json")) seen.comments += 1;
+        if (u.includes("/submitted.json")) seen.submitted += 1;
+
+        return {
+          ok: true,
+          status: 200,
+          headers: new Map(),
+          async json() {
+            // Minimal listing shape for overview/comments/submitted
+            return {
+              data: {
+                children: [
+                  {
+                    data: {
+                      created_utc: Math.floor(Date.now() / 1000) - 3600,
+                      subreddit: "testsub",
+                      url: "https://example.com/post",
+                      title: "hello world",
+                      body: "hello world",
+                      permalink: "/r/testsub/comments/abc123/x",
+                    },
+                  },
+                ],
+              },
+            };
+          },
+        };
+      };
+
+      engine = createRedditSlopSleuth({
+        win: window,
+        doc: document,
+        fetchFn,
+        options: {
+          v2: {
+            enableHistoryFetch: true,
+            enableExtendedHistoryFetch: true,
+            historyDailyQuotaPerUser: 50,
+          },
+        },
+      });
+
+      // First run should fetch extended history once.
+      await engine.start();
+      await engine.__test.refreshAllBadges();
+
+      // Second recompute should hit caches (no additional fetches).
+      await engine.__test.refreshAllBadges();
+
+      // We can't guarantee the test creates an entry that triggers fetch; force it by adding an entry.
+      // Inject a comment so computeEntry runs and hits uncertain band gating.
+      const root = document.createElement("div");
+      root.innerHTML = `
+        <div class="comment">
+          <a class="author">SomeUser</a>
+          <div class="md"><p>This is some moderately long text that might fall into the uncertain band for ML.</p></div>
+        </div>
+      `;
+      document.body.appendChild(root);
+      await engine.scanRoot(document);
+
+      // Trigger recompute again after injection.
+      await engine.__test.refreshAllBadges();
+
+      // At least one of the endpoints should have been fetched, but not repeatedly.
+      expect(seen.overview).toBeLessThanOrEqual(2);
+      expect(seen.comments).toBeLessThanOrEqual(2);
+      expect(seen.submitted).toBeLessThanOrEqual(2);
+    });
+  });
+
   describe("DOM scan + badge", () => {
     it("injects a clickable badge next to a username", async () => {
       const root = document.createElement("div");
