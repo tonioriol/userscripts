@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RedditSlopSleuth
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.18
+// @version      0.1.19
 // @description  Heuristic bot/AI slop indicator for Reddit with per-user badges and a details side panel.
 // @author       Toni Oriol
 // @match        *://www.reddit.com/*
@@ -1341,24 +1341,24 @@
   "version": 1,
   "kind": "logreg-binary",
   "weights": {
-    "wordCount": -7.617741454542536,
-    "sentenceCount": -6.953110027999409,
-    "sentenceAvgLen": -0.06245177536360097,
-    "sentenceLenVariance": -4.401590119342886,
-    "templateMaxRepeatCount": -0.022477675694460447,
-    "englishStopwordHits": 10.649736940649584,
-    "englishLike": 1.7328167637189749,
-    "numberTokenCount": -3.991687737682252,
-    "contractionHitCount": 0.8896882504701691,
-    "contractionsPer100Words": 1.0028455333114201,
-    "headingishLineCount": 13.384913445334142,
-    "listLineCount": 7.857004660348801,
-    "linkCount": -2.6238856170709823,
-    "revisionMarkerCount": -0.2503095964983358,
-    "mdHeadingCount": -0.06123094234081582,
-    "emojiPresent": -0.4294429580414266
+    "wordCount": -7.4475686159254355,
+    "sentenceCount": -7.03659696034141,
+    "sentenceAvgLen": 0.340755856898417,
+    "sentenceLenVariance": -4.5707295350757455,
+    "templateMaxRepeatCount": -0.02186119121801533,
+    "englishStopwordHits": 10.914880633255276,
+    "englishLike": 1.832805393304264,
+    "numberTokenCount": -3.9796170309156516,
+    "contractionHitCount": 0.9619085696791451,
+    "contractionsPer100Words": 1.1037186577538565,
+    "headingishLineCount": 13.475557325514623,
+    "linkCount": -2.6222556004988773,
+    "listLineCount": 7.8601959616883335,
+    "revisionMarkerCount": -0.2532391470172621,
+    "mdHeadingCount": -0.06351749725427647,
+    "emojiPresent": -0.41553326565743687
   },
-  "bias": -2.905423698503971
+  "bias": -2.9124546355856413
 };
 
   const RSS_V2_THRESHOLDS = {
