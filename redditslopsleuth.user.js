@@ -101,11 +101,19 @@
     return `
       :root {
         --rss-z: 2147483646;
-        --rss-bg: rgba(255,255,255,0.92);
-        --rss-border: rgba(0,0,0,0.12);
+        --rss-bg: rgba(255,255,255,0.96);
+        --rss-surface: rgba(255,255,255,0.86);
+        --rss-surface-2: rgba(255,255,255,0.92);
+        --rss-border: rgba(0,0,0,0.14);
         --rss-shadow: 0 12px 32px rgba(0,0,0,0.25);
-        --rss-text: #111827;
-        --rss-muted: #6b7280;
+        --rss-text: #0f172a;
+        --rss-muted: #475569;
+        --rss-hover: rgba(15, 23, 42, 0.06);
+        --rss-btn-bg: rgba(255,255,255,0.86);
+        --rss-btn-hover: rgba(255,255,255,1);
+        --rss-meter-track: rgba(0,0,0,0.10);
+        --rss-badge-bg: rgba(255,255,255,0.92);
+        --rss-overlay: rgba(0,0,0,0.35);
         --rss-blue: #2563eb;
         --rss-red: #dc2626;
         --rss-purple: #7c3aed;
@@ -114,12 +122,53 @@
 
       @media (prefers-color-scheme: dark) {
         :root {
-          --rss-bg: rgba(17,24,39,0.92);
-          --rss-border: rgba(255,255,255,0.14);
-          --rss-shadow: 0 12px 32px rgba(0,0,0,0.55);
-          --rss-text: #f9fafb;
-          --rss-muted: #9ca3af;
+          --rss-bg: rgba(2, 6, 23, 0.92);
+          --rss-surface: rgba(15, 23, 42, 0.72);
+          --rss-surface-2: rgba(15, 23, 42, 0.86);
+          --rss-border: rgba(148, 163, 184, 0.22);
+          --rss-shadow: 0 12px 32px rgba(0,0,0,0.70);
+          --rss-text: #f8fafc;
+          --rss-muted: #cbd5e1;
+          --rss-hover: rgba(248, 250, 252, 0.08);
+          --rss-btn-bg: rgba(15, 23, 42, 0.80);
+          --rss-btn-hover: rgba(30, 41, 59, 0.92);
+          --rss-meter-track: rgba(248, 250, 252, 0.12);
+          --rss-badge-bg: rgba(15, 23, 42, 0.90);
+          --rss-overlay: rgba(0,0,0,0.45);
         }
+      }
+
+      /* Allow the script to force a theme (helps on environments where prefers-color-scheme is unreliable). */
+      :root[data-rss-theme="dark"] {
+        --rss-bg: rgba(2, 6, 23, 0.92);
+        --rss-surface: rgba(15, 23, 42, 0.72);
+        --rss-surface-2: rgba(15, 23, 42, 0.86);
+        --rss-border: rgba(148, 163, 184, 0.22);
+        --rss-shadow: 0 12px 32px rgba(0,0,0,0.70);
+        --rss-text: #f8fafc;
+        --rss-muted: #cbd5e1;
+        --rss-hover: rgba(248, 250, 252, 0.08);
+        --rss-btn-bg: rgba(15, 23, 42, 0.80);
+        --rss-btn-hover: rgba(30, 41, 59, 0.92);
+        --rss-meter-track: rgba(248, 250, 252, 0.12);
+        --rss-badge-bg: rgba(15, 23, 42, 0.90);
+        --rss-overlay: rgba(0,0,0,0.45);
+      }
+
+      :root[data-rss-theme="light"] {
+        --rss-bg: rgba(255,255,255,0.96);
+        --rss-surface: rgba(255,255,255,0.86);
+        --rss-surface-2: rgba(255,255,255,0.92);
+        --rss-border: rgba(0,0,0,0.14);
+        --rss-shadow: 0 12px 32px rgba(0,0,0,0.25);
+        --rss-text: #0f172a;
+        --rss-muted: #475569;
+        --rss-hover: rgba(15, 23, 42, 0.06);
+        --rss-btn-bg: rgba(255,255,255,0.86);
+        --rss-btn-hover: rgba(255,255,255,1);
+        --rss-meter-track: rgba(0,0,0,0.10);
+        --rss-badge-bg: rgba(255,255,255,0.92);
+        --rss-overlay: rgba(0,0,0,0.35);
       }
 
       /* Utilities */
@@ -156,7 +205,7 @@
       .rss-overflow-auto { overflow: auto; }
       .rss-select-none { user-select: none; }
       .rss-cursor-pointer { cursor: pointer; }
-      .rss-hover-bg:hover { background: rgba(0,0,0,0.06); }
+      .rss-hover-bg:hover { background: var(--rss-hover); }
       .rss-focus-ring:focus { outline: 2px solid var(--rss-blue); outline-offset: 2px; }
 
       /* Badge */
@@ -169,7 +218,7 @@
         height: 20px;
         border-radius: 9999px;
         border: 1px solid var(--rss-border);
-        background: rgba(255,255,255,0.85);
+        background: var(--rss-badge-bg);
         font-size: 13px;
         line-height: 1;
         cursor: pointer;
@@ -197,7 +246,7 @@
       }
 
       .rss-overlay {
-        background: rgba(0,0,0,0.30);
+        background: var(--rss-overlay);
         backdrop-filter: blur(2px);
         -webkit-backdrop-filter: blur(2px);
       }
@@ -215,7 +264,7 @@
         border: 1px solid var(--rss-border);
         border-radius: 0.5rem;
         padding: 0.5rem 0.75rem;
-        background: rgba(255,255,255,0.6);
+        background: var(--rss-surface);
       }
 
       .rss-pill {
@@ -226,15 +275,7 @@
         border-radius: 9999px;
         padding: 4px 8px;
         font-size: 12px;
-        background: rgba(255,255,255,0.7);
-      }
-
-      @media (prefers-color-scheme: dark) {
-        .rss-pill { background: rgba(17,24,39,0.55); }
-        .rss-row { background: rgba(17,24,39,0.55); }
-        .rss-badge { background: rgba(17,24,39,0.75); }
-        .rss-popover { background: rgba(17,24,39,0.96); }
-        .rss-bg-solid { background: rgba(17,24,39,0.96); }
+        background: var(--rss-surface-2);
       }
 
       /* Meters */
@@ -252,7 +293,7 @@
         height: 8px;
         border-radius: 9999px;
         border: 1px solid var(--rss-border);
-        background: rgba(0,0,0,0.08);
+        background: var(--rss-meter-track);
         overflow: hidden;
       }
       .rss-meter-fill {
@@ -269,21 +310,16 @@
         border: 1px solid var(--rss-border);
         border-radius: 0.5rem;
         padding: 8px 10px;
-        background: rgba(255,255,255,0.8);
+        background: var(--rss-btn-bg);
         color: var(--rss-text);
         cursor: pointer;
       }
-      .rss-btn:hover { background: rgba(255,255,255,1); }
+      .rss-btn:hover { background: var(--rss-btn-hover); }
       .rss-btn-primary { border-color: rgba(37, 99, 235, 0.35); }
 
       .rss-btn:disabled {
         opacity: 0.6;
         cursor: not-allowed;
-      }
-
-      @media (prefers-color-scheme: dark) {
-        .rss-btn { background: rgba(17,24,39,0.65); }
-        .rss-btn:hover { background: rgba(17,24,39,0.82); }
       }
 
       .rss-toggle {
@@ -318,7 +354,7 @@
         width: min(360px, calc(100vw - 24px));
         max-height: min(70vh, 520px);
         overflow: auto;
-        background: rgba(255,255,255,0.98);
+        background: var(--rss-bg);
         color: var(--rss-text);
         border: 1px solid var(--rss-border);
         border-radius: 12px;
@@ -345,14 +381,10 @@
         border-radius: 9999px;
         width: 28px;
         height: 28px;
-        background: rgba(255,255,255,0.9);
+        background: var(--rss-btn-bg);
         color: var(--rss-text);
         cursor: pointer;
         line-height: 1;
-      }
-
-      @media (prefers-color-scheme: dark) {
-        .rss-popover-close { background: rgba(17,24,39,0.7); }
       }
     `;
   };
@@ -389,6 +421,12 @@
     String(s ?? "")
       .replace(/\s+/g, " ")
       .trim();
+
+  const escapeHtml = (s) =>
+    String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
 
   const isHoverCapable = (win) => {
     try {
@@ -1408,34 +1446,41 @@
   "version": 1,
   "kind": "logreg-binary",
   "weights": {
-    "wordCount": -8.728888352441755,
-    "sentenceCount": -6.559268869245881,
-    "sentenceAvgLen": 0.4471703618763302,
-    "sentenceLenVariance": -4.717375906637469,
-    "templateMaxRepeatCount": -0.09838830423781045,
-    "englishStopwordHits": 11.783979717229087,
-    "englishLike": 1.5277662546201476,
-    "contractionHitCount": 3.8961333511423044,
-    "contractionsPer100Words": 2.99222085271706,
-    "numberTokenCount": -4.588706134205937,
-    "listLineCount": 7.25458343969445,
-    "headingishLineCount": 11.886548163661852,
-    "revisionMarkerCount": -1.1349297883433918,
-    "linkCount": -3.9327375507657094,
-    "emojiPresent": -2.3711457509322744,
-    "overviewKindCommentRatio": -0.20971284041914576,
-    "overviewKindPostRatio": -0.03995009667533234,
-    "overviewIsCommentHeavy": -0.24965814335612593,
-    "overviewPostsPerDay01": -0.000325235980644179,
-    "overviewDaysActive01": -0.33300538037174654,
-    "histCount": -6.24145358390315,
-    "histUniqueSubs": -2.746239576917384,
-    "histUniqueDomains": -0.7489744300683782,
-    "histLinkRatio": -0.03995009667533234,
-    "histAvgDeltaHours": -76.66638653498974,
-    "mdHeadingCount": -0.06148241037372616
+    "englishLike": 1.1954616630210413,
+    "englishStopwordHits": 11.911902651830943,
+    "sentenceAvgLen": 0.4975948282376945,
+    "sentenceCount": -6.798363020110076,
+    "sentenceLenVariance": -4.882533714821792,
+    "templateMaxRepeatCount": -0.14584967612695146,
+    "wordCount": -8.893715518132122,
+    "numberTokenCount": -4.565955673205992,
+    "contractionHitCount": 1.8725597155968752,
+    "contractionsPer100Words": 5.805059002945627,
+    "ctxHasPermalink": -2.7600110652433205,
+    "ctxHasPostTitle": -2.7872923967968295,
+    "ctxIsComment": -1.2523753655482337,
+    "ctxSubreddit": -2.7872923967968295,
+    "emojiPresent": -1.193152911925929,
+    "headingishLineCount": 12.997994564839026,
+    "ctxIsPost": -1.5836204437799988,
+    "linkCount": -3.7082031470620875,
+    "histAvgDeltaHours": -33.304769282924134,
+    "histCount": -2.305492367939771,
+    "histLinkRatio": -0.007624189307696679,
+    "histUniqueDomains": -0.09245632802617616,
+    "histUniqueSubs": -0.5535055030081749,
+    "overviewBurstiness01": -0.08021399525750106,
+    "overviewDaysActive01": -0.10809290100989694,
+    "overviewIsCommentHeavy": -0.09224303661253579,
+    "overviewKindCommentRatio": -0.08484322880383757,
+    "overviewKindPostRatio": -0.007624189307696679,
+    "overviewPostsPerDay01": -0.00014967882710408115,
+    "listLineCount": 7.313156700879443,
+    "revisionMarkerCount": -0.43637791605602905,
+    "mdHeadingCount": -0.06354092543418392,
+    "overviewIsPostHeavy": -0.0002468778898767485
   },
-  "bias": -3.380431627637778
+  "bias": -3.1952138322886467
 };
 
   const RSS_V2_THRESHOLDS = {
@@ -1535,11 +1580,47 @@
       }
     };
 
-    // Prefer localStorage (survives restarts), but fall back to sessionStorage in
-    // environments where localStorage is blocked or quota-limited.
     const fromLocal = tryLoad(win?.localStorage);
-    if (fromLocal !== null) return fromLocal;
-    return tryLoad(win?.sessionStorage);
+    const fromSession = tryLoad(win?.sessionStorage);
+
+    if (fromLocal === null) return fromSession;
+    if (fromSession === null) return fromLocal;
+
+    // If both stores have data, prefer the newest payload. This avoids surprises
+    // when we fall back to sessionStorage (e.g. localStorage quota) but localStorage
+    // still contains an older/smaller snapshot.
+    const recordCount = (v) => {
+      if (Array.isArray(v)) return v.length;
+      if (v && typeof v === "object" && Array.isArray(v.records)) return v.records.length;
+      return 0;
+    };
+    const updatedAt = (v) => {
+      if (!v || typeof v !== "object") return 0;
+      const ts = Number(v.updatedAt);
+      return Number.isFinite(ts) && ts > 0 ? ts : 0;
+    };
+
+    const aTs = updatedAt(fromLocal);
+    const bTs = updatedAt(fromSession);
+    const aN = recordCount(fromLocal);
+    const bN = recordCount(fromSession);
+
+    const pickSession =
+      bTs > aTs || (bTs === aTs && bN > aN);
+
+    const best = pickSession ? fromSession : fromLocal;
+
+    // Best-effort convergence: if sessionStorage is newer, try to copy it into localStorage
+    // so future loads are consistent (ignore failures).
+    if (pickSession) {
+      try {
+        win?.localStorage?.setItem?.(key, JSON.stringify(best));
+      } catch {
+        // Ignore.
+      }
+    }
+
+    return best;
   };
 
   const rssSaveJson = (win, key, value) => {
@@ -1658,6 +1739,9 @@
       // Extended history fetches can be noisy/expensive (extra quota and more JSON).
       // Keep them opt-in until we ship pretrained weights that actually use these features.
       enableExtendedHistoryFetch: false,
+      // UI theme for the panel/popover.
+      // "auto" uses prefers-color-scheme; "dark"/"light" force our CSS vars.
+      uiTheme: "auto",
       historyDailyQuotaPerUser: 4,
       ...(storedV2Options || {}),
       ...(options?.v2 || {}),
@@ -1814,6 +1898,18 @@
       rssSaveJson(win, RSS_V2_LABELS_STORAGE_KEY, state.v2Labels);
     const v2SaveModelHistory = () =>
       rssSaveJson(win, RSS_V2_MODEL_HISTORY_STORAGE_KEY, state.v2ModelHistory);
+
+    const v2ApplyUiTheme = () => {
+      try {
+        const root = doc?.documentElement;
+        if (!root) return;
+        const t = String(state.v2Options?.uiTheme || "auto");
+        if (t === "dark" || t === "light") root.setAttribute("data-rss-theme", t);
+        else root.removeAttribute("data-rss-theme");
+      } catch {
+        // Ignore.
+      }
+    };
 
     const v2GetStorageKind = () => {
       try {
@@ -2641,6 +2737,9 @@
     const buildUi = () => {
       if (state.ui) return state.ui;
 
+      // Apply any persisted theme override as early as possible.
+      v2ApplyUiTheme();
+
       const root = doc.createElement("div");
       root.id = UI_ROOT_ID;
       root.className = "rss-fixed rss-bottom-4 rss-right-4";
@@ -3015,6 +3114,9 @@
           <div class="rss-text-sm rss-muted" style="margin-top:4px">
             Storage: ${v2GetStorageKind()}
           </div>
+          <div class="rss-text-sm rss-muted" style="margin-top:4px">
+            UI theme: ${escapeHtml(state.v2Options?.uiTheme || "auto")}
+          </div>
           <div class="rss-flex rss-gap-2" style="margin-top:8px; flex-wrap: wrap">
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="labels">Copy labels JSON</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="model">Copy model JSON</button>
@@ -3028,6 +3130,7 @@
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="labels">Clear labels</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="train">Clear RSS-train-data</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="extended-history">Toggle extended history</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="ui-theme">Theme: Auto/Dark/Light</button>
           </div>
         `;
 
@@ -3064,7 +3167,9 @@
               const records = Array.isArray(state.v2TrainPersisted)
                 ? state.v2TrainPersisted
                 : [];
-              const jsonl = records.map((row) => JSON.stringify(row)).join("\n");
+              // Snapshot to avoid oddities if the array is mutated while we export.
+              const snapshot = records.slice();
+              const jsonl = snapshot.map((row) => JSON.stringify(row)).join("\n");
               await copyToClipboard(jsonl + (jsonl ? "\n" : ""));
               return;
             }
@@ -3206,6 +3311,16 @@
                 !state.v2Options.enableExtendedHistoryFetch;
               v2SaveOptions();
               await refreshAllBadges();
+              state.ui?.render?.();
+            }
+
+            if (kind === "ui-theme") {
+              const cur = String(state.v2Options?.uiTheme || "auto");
+              const next =
+                cur === "auto" ? "dark" : cur === "dark" ? "light" : "auto";
+              state.v2Options.uiTheme = next;
+              v2ApplyUiTheme();
+              v2SaveOptions();
               state.ui?.render?.();
             }
           });
@@ -3416,11 +3531,6 @@
           : null;
       const userLabel = state.v2UserLabel.get(entry.username) || null;
 
-      const escapeHtml = (s) =>
-        String(s ?? "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;");
       const botRatio = ratioToThreshold(
         entry.scores.bot,
         HARD_CODED_THRESHOLDS.bot,
@@ -4233,6 +4343,7 @@
 
     const start = async () => {
       injectCss(doc);
+      v2ApplyUiTheme();
       buildUi();
 
       await scanRoot(doc);
