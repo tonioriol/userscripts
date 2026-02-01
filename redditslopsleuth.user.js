@@ -4089,21 +4089,7 @@
 
       for (const node of nodes) {
         if (!(node instanceof win.HTMLElement)) continue;
-        const hasBadge = Boolean(
-          node.querySelector?.(`[${BADGE_ATTR}="true"]`),
-        );
         const processed = node.getAttribute(PROCESSED_ATTR) === "true";
-
-        // Some parts of Reddit re-render and can remove our injected badge while keeping the same
-        // container node. If that happens, allow reprocessing.
-        if (processed && !hasBadge) node.removeAttribute(PROCESSED_ATTR);
-        if (processed && hasBadge) continue;
-
-        // If a badge already exists anywhere inside, mark as done.
-        if (hasBadge) {
-          node.setAttribute(PROCESSED_ATTR, "true");
-          continue;
-        }
 
         // Skip injecting into our own UI.
         if (
@@ -4133,6 +4119,18 @@
         }
 
         if (!authorEl || !username) continue;
+
+        // If a badge already exists near this author, treat this container as processed.
+        // Important: our badge is sometimes inserted *outside* the content container
+        // (e.g. after a hovercard host), so `node.querySelector([data-rss-badge])` is not reliable.
+        if (hasExistingBadgeNear(authorEl)) {
+          node.setAttribute(PROCESSED_ATTR, "true");
+          continue;
+        }
+
+        // If the container claims it was processed but we no longer see a badge near the author,
+        // allow reprocessing. This handles cases where Reddit re-renders and drops our injected node.
+        if (processed) node.removeAttribute(PROCESSED_ATTR);
 
         // Note: posts in the feed may have no body text; allow empty string.
         const text = extractText(node) || "";
