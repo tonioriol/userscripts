@@ -1400,6 +1400,7 @@
   const RSS_V2_TRAIN_DATA_STORAGE_KEY = "rss:v2:train-data";
   const RSS_V2_TRAIN_PERSIST_MAX = 800;
   const RSS_V2_TRAIN_PERSIST_DEDUPE_WINDOW = 200;
+  const RSS_V2_TRAIN_TEXT_MAX = 1200;
 
   const rssSigmoid = (z) => 1 / (1 + Math.exp(-z));
 
@@ -1484,8 +1485,10 @@
   const rssSaveJson = (win, key, value) => {
     try {
       win?.localStorage?.setItem?.(key, JSON.stringify(value));
+      return true;
     } catch {
       // Ignore quota/private mode.
+      return false;
     }
   };
 
@@ -1517,7 +1520,7 @@
   };
 
   const rssSaveTrainData = (win, records) => {
-    rssSaveJson(win, RSS_V2_TRAIN_DATA_STORAGE_KEY, {
+    return rssSaveJson(win, RSS_V2_TRAIN_DATA_STORAGE_KEY, {
       version: 1,
       updatedAt: Date.now(),
       records,
@@ -1529,6 +1532,32 @@
     const username = String(row?.username || "");
     const text = compactWs(String(row?.text || "")).slice(0, 160);
     return `${url}|${username}|${text}`;
+  };
+
+  const rssCompactNumberMap = (raw) => {
+    const src =
+      raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    const out = {};
+    for (const [k, v] of Object.entries(src)) {
+      const n = typeof v === "boolean" ? (v ? 1 : 0) : Number(v);
+      if (!Number.isFinite(n) || n === 0) continue;
+      out[k] = n;
+    }
+    return out;
+  };
+
+  const rssMakeTrainPersistRow = (row) => {
+    const safe = row && typeof row === "object" ? row : {};
+    const text = String(safe.text || "").slice(0, RSS_V2_TRAIN_TEXT_MAX);
+    return {
+      kind: "rss-train-data",
+      url: String(safe.url || ""),
+      username: String(safe.username || ""),
+      entryId: safe.entryId ?? null,
+      context: safe.context ?? null,
+      text,
+      features: rssCompactNumberMap(safe.features),
+    };
   };
 
   const createRedditSlopSleuth = ({ win, doc, fetchFn, options = {} }) => {
@@ -1574,6 +1603,8 @@
       v2UserLabel: new Map(), // username -> "human" | "ai"
       v2TrainBuffer: [], // last N entries for console export
       v2TrainPersisted: rssLoadTrainData(win), // persisted across navigations
+      v2TrainPersistErrorCount: 0,
+      v2TrainPersistLastErrorAt: 0,
 
       v2Options,
     };
@@ -1673,7 +1704,10 @@
       rssSaveJson(win, RSS_V2_MODEL_HISTORY_STORAGE_KEY, state.v2ModelHistory);
 
     const v2SaveTrainData = () =>
-      rssSaveTrainData(win, Array.isArray(state.v2TrainPersisted) ? state.v2TrainPersisted : []);
+      rssSaveTrainData(
+        win,
+        Array.isArray(state.v2TrainPersisted) ? state.v2TrainPersisted : [],
+      );
 
     const v2PushModelSnapshot = () => {
       try {
@@ -1743,17 +1777,26 @@
           ? state.v2TrainPersisted
           : [];
 
-        const sig = rssTrainRowSig(row);
+        const persistRow = rssMakeTrainPersistRow(row);
+
+        const sig = rssTrainRowSig(persistRow);
         const recent = next.slice(-RSS_V2_TRAIN_PERSIST_DEDUPE_WINDOW);
         if (recent.some((r) => rssTrainRowSig(r) === sig)) return;
 
-        next.push({ ...row, ts: Date.now() });
+        next.push({ ...persistRow, ts: Date.now() });
         state.v2TrainPersisted =
           next.length > RSS_V2_TRAIN_PERSIST_MAX
             ? next.slice(-RSS_V2_TRAIN_PERSIST_MAX)
             : next;
 
-        v2SaveTrainData();
+        const ok = v2SaveTrainData();
+        if (!ok) {
+          state.v2TrainPersistErrorCount += 1;
+          state.v2TrainPersistLastErrorAt = Date.now();
+          // Retry once with a smaller window in case we hit storage limits.
+          state.v2TrainPersisted = state.v2TrainPersisted.slice(-120);
+          v2SaveTrainData();
+        }
       } catch {
         // Ignore quota/private mode.
       }
@@ -2763,6 +2806,9 @@
           </div>
           <div class="rss-text-sm rss-muted" style="margin-top:6px">
             Eval: ${evalSummary}
+          </div>
+          <div class="rss-text-sm rss-muted" style="margin-top:6px">
+            Train rows: tab ${state.v2TrainBuffer.length} · all ${state.v2TrainPersisted.length} · persist errors ${state.v2TrainPersistErrorCount}
           </div>
           <div class="rss-flex rss-gap-2" style="margin-top:8px; flex-wrap: wrap">
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="labels">Copy labels JSON</button>
