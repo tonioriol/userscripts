@@ -2717,9 +2717,10 @@
           <div class="rss-flex rss-gap-2" style="margin-top:8px; flex-wrap: wrap">
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="labels">Copy labels JSON</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="model">Copy model JSON</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="train-jsonl">Copy RSS-train-data JSONL (buffer)</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-import="labels">Import labels JSON</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-import="model">Import model JSON</button>
-            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="train">Console: RSS-train-data (buffer)</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="train">Console: RSS-train-data JSONL (buffer)</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-undo="model">Undo tune</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="model">Reset model</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="labels">Clear labels</button>
@@ -2748,11 +2749,18 @@
               await copyToClipboard(JSON.stringify(state.v2Model, null, 2));
               return;
             }
+            if (kind === "train-jsonl") {
+              const jsonl = state.v2TrainBuffer
+                .map((row) => JSON.stringify(row))
+                .join("\n");
+              await copyToClipboard(jsonl + (jsonl ? "\n" : ""));
+              return;
+            }
             if (kind === "train") {
               try {
                 for (const row of state.v2TrainBuffer) {
                   // eslint-disable-next-line no-console
-                  console.log("RSS-train-data", row);
+                  console.log(JSON.stringify(row));
                 }
               } catch {
                 // Ignore.
@@ -3239,7 +3247,7 @@
           };
           try {
             // eslint-disable-next-line no-console
-            console.log("RSS-train-data", row);
+            console.log(JSON.stringify(row));
           } catch {
             // Ignore.
           }
