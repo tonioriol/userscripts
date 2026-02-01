@@ -1508,23 +1508,38 @@
   };
 
   const rssLoadJson = (win, key) => {
-    try {
-      const raw = win?.localStorage?.getItem?.(key);
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
+    const tryLoad = (store) => {
+      try {
+        const raw = store?.getItem?.(key);
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    };
+
+    // Prefer localStorage (survives restarts), but fall back to sessionStorage in
+    // environments where localStorage is blocked or quota-limited.
+    const fromLocal = tryLoad(win?.localStorage);
+    if (fromLocal !== null) return fromLocal;
+    return tryLoad(win?.sessionStorage);
   };
 
   const rssSaveJson = (win, key, value) => {
-    try {
-      win?.localStorage?.setItem?.(key, JSON.stringify(value));
-      return true;
-    } catch {
-      // Ignore quota/private mode.
-      return false;
-    }
+    const payload = JSON.stringify(value);
+
+    const trySave = (store) => {
+      try {
+        store?.setItem?.(key, payload);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    // Prefer localStorage; fall back to sessionStorage.
+    if (trySave(win?.localStorage)) return true;
+    return trySave(win?.sessionStorage);
   };
 
   const rssLoadModel = (win) => {
@@ -1782,6 +1797,18 @@
       rssSaveJson(win, RSS_V2_LABELS_STORAGE_KEY, state.v2Labels);
     const v2SaveModelHistory = () =>
       rssSaveJson(win, RSS_V2_MODEL_HISTORY_STORAGE_KEY, state.v2ModelHistory);
+
+    const v2GetStorageKind = () => {
+      try {
+        // If localStorage is writable, prefer it.
+        const k = "rss:probe";
+        win?.localStorage?.setItem?.(k, "1");
+        win?.localStorage?.removeItem?.(k);
+        return "localStorage";
+      } catch {
+        return "sessionStorage";
+      }
+    };
 
     const v2SaveTrainData = () =>
       rssSaveTrainData(
@@ -2967,6 +2994,9 @@
           </div>
           <div class="rss-text-sm rss-muted" style="margin-top:6px">
             Train rows: tab ${state.v2TrainBuffer.length} · all ${state.v2TrainPersisted.length} · persist errors ${state.v2TrainPersistErrorCount}
+          </div>
+          <div class="rss-text-sm rss-muted" style="margin-top:4px">
+            Storage: ${v2GetStorageKind()}
           </div>
           <div class="rss-flex rss-gap-2" style="margin-top:8px; flex-wrap: wrap">
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="labels">Copy labels JSON</button>
