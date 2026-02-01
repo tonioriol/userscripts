@@ -1280,7 +1280,7 @@
         : 0,
 
       // History (default 0 when not available). These keys are merged into the ML
-      // feature vector in [`js.computeEntryBase()`](redditslopsleuth.user.js:3297).
+      // feature vector in [`js.computeEntryBase()`](redditslopsleuth.user.js:3564).
       // Keep them bounded (or boolean) so training stays stable.
       overviewKindCommentRatio: 0,
       overviewKindPostRatio: 0,
@@ -1288,6 +1288,22 @@
       overviewIsPostHeavy: 0,
       overviewPostsPerDay01: 0,
       overviewDaysActive01: 0,
+      overviewBurstiness01: 0,
+
+      histCommentsCount: 0,
+      histCommentsUniqueSubs: 0,
+      histCommentsAvgWords: 0,
+      histCommentsTemplateMaxRepeat: 0,
+      histCommentsAvgDeltaHours: 0,
+      histCommentsBurstiness01: 0,
+
+      histSubmittedCount: 0,
+      histSubmittedUniqueSubs: 0,
+      histSubmittedUniqueDomains: 0,
+      histSubmittedLinkRatio: 0,
+      histSubmittedTitleTemplateMaxRepeat: 0,
+      histSubmittedAvgDeltaHours: 0,
+      histSubmittedBurstiness01: 0,
     };
   };
 
@@ -1366,34 +1382,34 @@
   "version": 1,
   "kind": "logreg-binary",
   "weights": {
-    "wordCount": -8.57216804462788,
-    "sentenceCount": -5.214182059421153,
-    "sentenceAvgLen": 1.2774756388116835,
-    "sentenceLenVariance": -3.8891990411937387,
-    "templateMaxRepeatCount": -0.10315405948652286,
-    "englishStopwordHits": 11.740082573693893,
-    "englishLike": 1.513017233514648,
-    "contractionHitCount": 4.224579317070152,
-    "contractionsPer100Words": 0.46726768510543726,
-    "numberTokenCount": -3.297162299852627,
-    "overviewKindCommentRatio": -0.2257631303710733,
-    "overviewKindPostRatio": -0.0430076616482976,
-    "overviewIsCommentHeavy": -0.26876563139413495,
-    "overviewPostsPerDay01": -0.00035012778880292233,
-    "overviewDaysActive01": -0.3788738512337005,
-    "histCount": -6.719140784853375,
-    "histUniqueSubs": -2.956421945335487,
-    "histUniqueDomains": -0.8062968941824055,
-    "histLinkRatio": -0.0430076616482976,
-    "histAvgDeltaHours": -82.53401834520099,
-    "listLineCount": 3.774192608826927,
-    "headingishLineCount": 8.458132819368751,
-    "linkCount": -2.7150496306944794,
-    "mdHeadingCount": -0.054708471296023464,
-    "emojiPresent": -3.202671499265549,
-    "revisionMarkerCount": -1.4599094008639206
+    "wordCount": -8.728888352441755,
+    "sentenceCount": -6.559268869245881,
+    "sentenceAvgLen": 0.4471703618763302,
+    "sentenceLenVariance": -4.717375906637469,
+    "templateMaxRepeatCount": -0.09838830423781045,
+    "englishStopwordHits": 11.783979717229087,
+    "englishLike": 1.5277662546201476,
+    "contractionHitCount": 3.8961333511423044,
+    "contractionsPer100Words": 2.99222085271706,
+    "numberTokenCount": -4.588706134205937,
+    "listLineCount": 7.25458343969445,
+    "headingishLineCount": 11.886548163661852,
+    "revisionMarkerCount": -1.1349297883433918,
+    "linkCount": -3.9327375507657094,
+    "emojiPresent": -2.3711457509322744,
+    "overviewKindCommentRatio": -0.20971284041914576,
+    "overviewKindPostRatio": -0.03995009667533234,
+    "overviewIsCommentHeavy": -0.24965814335612593,
+    "overviewPostsPerDay01": -0.000325235980644179,
+    "overviewDaysActive01": -0.33300538037174654,
+    "histCount": -6.24145358390315,
+    "histUniqueSubs": -2.746239576917384,
+    "histUniqueDomains": -0.7489744300683782,
+    "histLinkRatio": -0.03995009667533234,
+    "histAvgDeltaHours": -76.66638653498974,
+    "mdHeadingCount": -0.06148241037372616
   },
-  "bias": -2.7910256739434156
+  "bias": -3.380431627637778
 };
 
   const RSS_V2_THRESHOLDS = {
@@ -1984,6 +2000,34 @@
         .filter(Number.isFinite)
         .sort((a, b) => a - b);
 
+      const computeBurstiness01FromCreated = (createdUtcSeconds) => {
+        const createdSorted = (createdUtcSeconds || [])
+          .map((t) => Number(t))
+          .filter(Number.isFinite)
+          .sort((a, b) => a - b);
+        if (createdSorted.length < 6) return 0;
+
+        // Use a quantile ratio: if the fastest gaps are much smaller than the median gap,
+        // posting is bursty. This is robust to overall activity level.
+        const gaps = [];
+        for (let i = 1; i < createdSorted.length; i += 1) {
+          const d = createdSorted[i] - createdSorted[i - 1];
+          if (Number.isFinite(d) && d > 0) gaps.push(d);
+        }
+        if (gaps.length < 5) return 0;
+
+        gaps.sort((a, b) => a - b);
+        const q = (qq) => gaps[Math.floor((gaps.length - 1) * qq)] || 0;
+        const p10 = q(0.1);
+        const p50 = q(0.5);
+        if (!Number.isFinite(p10) || !Number.isFinite(p50) || p10 <= 0 || p50 <= 0)
+          return 0;
+
+        // If p10 << p50 => bursty. Map ratio into 0..1.
+        const ratio = p50 / p10;
+        return clamp((ratio - 1) / 9, 0, 1); // ratio 1..10+ => 0..1
+      };
+
       const subreddits = new Set(
         items
           .map((i) => String(i.subreddit || "").toLowerCase())
@@ -2029,6 +2073,8 @@
         return sum / (created.length - 1) / 3600;
       })();
 
+      const overviewBurstiness01 = computeBurstiness01FromCreated(created);
+
       return {
         histCount: total,
         histUniqueSubs: subreddits.size,
@@ -2043,6 +2089,7 @@
         // Activity/age proxies (bounded)
         overviewPostsPerDay01,
         overviewDaysActive01,
+        overviewBurstiness01,
       };
     };
 
@@ -2086,6 +2133,25 @@
         return sum / (created.length - 1) / 3600;
       })();
 
+      // Burstiness for comments (same quantile-ratio approach as overview)
+      const histCommentsBurstiness01 = (() => {
+        if (created.length < 6) return 0;
+        const gaps = [];
+        for (let i = 1; i < created.length; i += 1) {
+          const d = created[i] - created[i - 1];
+          if (Number.isFinite(d) && d > 0) gaps.push(d);
+        }
+        if (gaps.length < 5) return 0;
+        gaps.sort((a, b) => a - b);
+        const q = (qq) => gaps[Math.floor((gaps.length - 1) * qq)] || 0;
+        const p10 = q(0.1);
+        const p50 = q(0.5);
+        if (!Number.isFinite(p10) || !Number.isFinite(p50) || p10 <= 0 || p50 <= 0)
+          return 0;
+        const ratio = p50 / p10;
+        return clamp((ratio - 1) / 9, 0, 1);
+      })();
+
       return {
         histCommentsCount: items.length,
         histCommentsUniqueSubs: subreddits.size,
@@ -2094,6 +2160,7 @@
         histCommentsAvgDeltaHours: Number.isFinite(avgDeltaHours)
           ? avgDeltaHours
           : 0,
+        histCommentsBurstiness01,
       };
     };
 
@@ -2145,6 +2212,24 @@
         return sum / (created.length - 1) / 3600;
       })();
 
+      const histSubmittedBurstiness01 = (() => {
+        if (created.length < 6) return 0;
+        const gaps = [];
+        for (let i = 1; i < created.length; i += 1) {
+          const d = created[i] - created[i - 1];
+          if (Number.isFinite(d) && d > 0) gaps.push(d);
+        }
+        if (gaps.length < 5) return 0;
+        gaps.sort((a, b) => a - b);
+        const q = (qq) => gaps[Math.floor((gaps.length - 1) * qq)] || 0;
+        const p10 = q(0.1);
+        const p50 = q(0.5);
+        if (!Number.isFinite(p10) || !Number.isFinite(p50) || p10 <= 0 || p50 <= 0)
+          return 0;
+        const ratio = p50 / p10;
+        return clamp((ratio - 1) / 9, 0, 1);
+      })();
+
       return {
         histSubmittedCount: total,
         histSubmittedUniqueSubs: subreddits.size,
@@ -2154,6 +2239,7 @@
         histSubmittedAvgDeltaHours: Number.isFinite(avgDeltaHours)
           ? avgDeltaHours
           : 0,
+        histSubmittedBurstiness01,
       };
     };
 
