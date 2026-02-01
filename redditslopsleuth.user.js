@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RedditSlopSleuth
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.19
+// @version      0.1.20
 // @description  Heuristic bot/AI slop indicator for Reddit with per-user badges and a details side panel.
 // @author       Toni Oriol
 // @match        *://www.reddit.com/*
@@ -15,6 +15,8 @@
 
 (() => {
   "use strict";
+
+  const RSS_SCRIPT_VERSION = "0.1.20";
 
   // ---------------------------------------------------------------------------
   // File map (single-file userscript)
@@ -3099,6 +3101,9 @@
 
         v2Panel.innerHTML = `
           <div class="rss-font-semibold">v2 ML</div>
+          <div class="rss-text-sm rss-muted" style="margin-top:4px">
+            Script version: ${escapeHtml(RSS_SCRIPT_VERSION)}
+          </div>
           <div class="rss-text-sm rss-muted" style="margin-top:4px">
             Labels: item AI ${labelCounts.itemAi} · item human ${labelCounts.itemHuman} · user AI ${labelCounts.userAi} · user human ${labelCounts.userHuman}
           </div>
