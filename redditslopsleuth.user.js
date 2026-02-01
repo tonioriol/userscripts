@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RedditSlopSleuth
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.22
+// @version      0.1.23
 // @description  Heuristic bot/AI slop indicator for Reddit with per-user badges and a details side panel.
 // @author       Toni Oriol
 // @match        *://www.reddit.com/*
@@ -16,7 +16,7 @@
 (() => {
   "use strict";
 
-  const RSS_SCRIPT_VERSION = "0.1.22";
+  const RSS_SCRIPT_VERSION = "0.1.23";
 
   // ---------------------------------------------------------------------------
   // File map (single-file userscript)
@@ -2780,6 +2780,16 @@
       state.popoverEl = popover;
 
       const render = () => {
+        // Preserve scroll position across rerenders (important for toggles and frequent updates).
+        const prevScrollTop = (() => {
+          try {
+            const prevBody = drawer.querySelector?.('[data-rss-drawer-body="true"]');
+            return Number(prevBody?.scrollTop ?? 0) || 0;
+          } catch {
+            return 0;
+          }
+        })();
+
         const selected = state.selectedEntryId
           ? state.entries.get(state.selectedEntryId)
           : null;
@@ -2815,6 +2825,7 @@
         const body = doc.createElement("div");
         body.className =
           "rss-p-4 rss-flex rss-flex-col rss-gap-3 rss-overflow-auto rss-max-h-80vh";
+        body.setAttribute("data-rss-drawer-body", "true");
 
         const details = doc.createElement("div");
         details.className = "rss-row";
@@ -3413,6 +3424,14 @@
 
         drawer.appendChild(header);
         drawer.appendChild(body);
+
+        // Restore scroll (clamp to content bounds).
+        try {
+          const maxScroll = Math.max(0, body.scrollHeight - body.clientHeight);
+          body.scrollTop = clamp(prevScrollTop, 0, maxScroll);
+        } catch {
+          // Ignore.
+        }
       };
 
       const setOpen = (open) => {
