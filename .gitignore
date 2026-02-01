@@ -4,3 +4,6 @@ node_modules
 # local training artifacts / downloaded datasets
 data/
 train/model.json
+
+# local / uncommitted training captures
+train/local/
