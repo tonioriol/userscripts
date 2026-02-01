@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RedditSlopSleuth
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.21
+// @version      0.1.22
 // @description  Heuristic bot/AI slop indicator for Reddit with per-user badges and a details side panel.
 // @author       Toni Oriol
 // @match        *://www.reddit.com/*
@@ -16,7 +16,7 @@
 (() => {
   "use strict";
 
-  const RSS_SCRIPT_VERSION = "0.1.21";
+  const RSS_SCRIPT_VERSION = "0.1.22";
 
   // ---------------------------------------------------------------------------
   // File map (single-file userscript)
@@ -3339,23 +3339,60 @@
         });
 
         v2Panel.querySelectorAll("[data-rss-v2-toggle]").forEach((btn) => {
-          btn.addEventListener("click", async (e) => {
+          btn.addEventListener("click", (e) => {
             e.preventDefault();
             e.stopPropagation();
+            e.stopImmediatePropagation?.();
             const kind = btn.getAttribute("data-rss-v2-toggle");
+
+            const rerender = () => {
+              try {
+                state.ui?.render?.();
+              } catch {
+                // Ignore.
+              }
+            };
+
+            const refreshInBackground = () => {
+              // Don’t block the UI state change on a full recompute.
+              // On some browsers/environments, network fetches during refresh can be slow or fail;
+              // the toggle should still visibly flip.
+              Promise.resolve().then(async () => {
+                try {
+                  await refreshAllBadges();
+                } catch {
+                  // Ignore.
+                }
+                rerender();
+              });
+            };
+
             if (kind === "history-fetch") {
-              state.v2Options.enableHistoryFetch = !state.v2Options.enableHistoryFetch;
+              state.v2Options.enableHistoryFetch =
+                !state.v2Options.enableHistoryFetch;
               v2SaveOptions();
-              await refreshAllBadges();
-              state.ui?.render?.();
+              rerender();
+              refreshInBackground();
+              return;
             }
 
             if (kind === "extended-history") {
               state.v2Options.enableExtendedHistoryFetch =
                 !state.v2Options.enableExtendedHistoryFetch;
               v2SaveOptions();
-              await refreshAllBadges();
-              state.ui?.render?.();
+              rerender();
+              refreshInBackground();
+              return;
+            }
+
+            if (kind === "train-history") {
+              const cur = String(state.v2Options?.trainHistoryMode || "auto");
+              state.v2Options.trainHistoryMode =
+                cur === "force" ? "auto" : "force";
+              v2SaveOptions();
+              rerender();
+              refreshInBackground();
+              return;
             }
 
             if (kind === "ui-theme") {
@@ -3365,15 +3402,7 @@
               state.v2Options.uiTheme = next;
               v2ApplyUiTheme();
               v2SaveOptions();
-              state.ui?.render?.();
-            }
-
-            if (kind === "train-history") {
-              const cur = String(state.v2Options?.trainHistoryMode || "auto");
-              state.v2Options.trainHistoryMode = cur === "force" ? "auto" : "force";
-              v2SaveOptions();
-              await refreshAllBadges();
-              state.ui?.render?.();
+              rerender();
             }
           });
         });
