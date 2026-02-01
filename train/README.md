@@ -2,7 +2,7 @@
 
 The runtime userscript stays dependency-free.
 
-Offline, we train a **tiny binary logistic regression** over engineered features extracted from [`buildTextFeatures()`](../redditslopsleuth.user.js:570).
+Offline, we train a **tiny binary logistic regression** over engineered features extracted from [`buildTextFeatures()`](../redditslopsleuth.user.js:600).
 
 ## Data format
 
@@ -23,6 +23,11 @@ Output format:
 {"label":"human","features":{...}}
 {"label":"ai","features":{...}}
 ```
+
+Optional fields:
+
+- `weight` (number): per-sample weight used during SGD.
+  - Supported by [`train/train-from-jsonl.js`](../train/train-from-jsonl.js:1) and [`train/trainLogReg()`](../train/logreg.js:28).
 
 ## Scripts
 
@@ -51,6 +56,28 @@ node train/featurize-text-jsonl.js --in ./data/raw.jsonl --out ./data/features.j
 ```bash
 node train/train-from-jsonl.js --in ./data/features.jsonl --out ./train/model.json
 ```
+
+### Training with real-browsing negatives (RSS-train-data)
+
+If you collect `RSS-train-data` JSONL from the userscript UI, you can generate additional **human-negative** feature rows.
+This is useful for reducing false positives on real Reddit text.
+
+1) Convert RSS-train-data JSONL to training features:
+
+```bash
+node train/label-rss-train-data-jsonl.js --in ./train/local/rss-train-data.jsonl --out ./train/local/rss.human.features.jsonl --label human --min-words 8
+```
+
+2) Mix it with an AI-vs-human dataset (example: HC3 features) and (optionally) use weights:
+
+```bash
+# concatenate and train
+cat ./data/hc3.features.jsonl ./train/local/rss.human.features.jsonl > ./data/hc3_plus_rss.features.jsonl
+node train/train-from-jsonl.js --in ./data/hc3_plus_rss.features.jsonl --out ./train/model.json
+```
+
+Notes:
+- The repo ignores `train/model.json` by default; the shipped weights live in [`RSS_V2_DEFAULT_MODEL`](../redditslopsleuth.user.js:1365).
 
 The resulting [`train/model.json`](model.json:1) is intended to be embedded into [`redditslopsleuth.user.js`](../redditslopsleuth.user.js:1) as the shipped pretrained weights.
 
