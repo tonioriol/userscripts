@@ -1495,8 +1495,9 @@
 
   const RSS_V2_TELEMETRY_KEY = "rss:v2:telemetry";
   const RSS_V2_TRAIN_DATA_STORAGE_KEY = "rss:v2:train-data";
-  const RSS_V2_TRAIN_PERSIST_MAX = 800;
-  const RSS_V2_TRAIN_PERSIST_DEDUPE_WINDOW = 200;
+  // Raised: the previous 800 cap made long browsing sessions look like "data isn't increasing".
+  const RSS_V2_TRAIN_PERSIST_MAX = 5000;
+  const RSS_V2_TRAIN_PERSIST_DEDUPE_WINDOW = 250;
   const RSS_V2_TRAIN_TEXT_MAX = 1200;
 
   const rssSigmoid = (z) => 1 / (1 + Math.exp(-z));
@@ -1739,6 +1740,11 @@
       // Extended history fetches can be noisy/expensive (extra quota and more JSON).
       // Keep them opt-in until we ship pretrained weights that actually use these features.
       enableExtendedHistoryFetch: false,
+      // For training-data collection, it is useful to force history fetches even when the
+      // prediction is confident; otherwise most exported rows have all-zero history features.
+      // "auto" keeps the normal gating behavior.
+      // "force" fetches history on first-seen users (subject to quota) using the current history level.
+      trainHistoryMode: "auto", // auto | force
       // UI theme for the panel/popover.
       // "auto" uses prefers-color-scheme; "dark"/"light" force our CSS vars.
       uiTheme: "auto",
@@ -3102,6 +3108,9 @@
           <div class="rss-text-sm rss-muted" style="margin-top:4px">
             History fetch: ${state.v2Options?.enableHistoryFetch ? "on" : "off"} · extended: ${state.v2Options?.enableExtendedHistoryFetch ? "on" : "off"} · quota/day/user: ${Number(state.v2Options?.historyDailyQuotaPerUser ?? 0) || 0}
           </div>
+          <div class="rss-text-sm rss-muted" style="margin-top:4px">
+            Train history mode: ${escapeHtml(state.v2Options?.trainHistoryMode || "auto")}
+          </div>
           <div class="rss-text-sm rss-muted" style="margin-top:6px">
             Top weights: ${topWeights.map(([k, v]) => `${k}(${fmtScore(v, { signed: true, decimals: 2 })})`).join(" · ")}
           </div>
@@ -3110,6 +3119,9 @@
           </div>
           <div class="rss-text-sm rss-muted" style="margin-top:6px">
             Train rows: tab ${state.v2TrainBuffer.length} · all ${state.v2TrainPersisted.length} · persist errors ${state.v2TrainPersistErrorCount}
+          </div>
+          <div class="rss-text-sm rss-muted" style="margin-top:4px">
+            Train cap: ${RSS_V2_TRAIN_PERSIST_MAX}
           </div>
           <div class="rss-text-sm rss-muted" style="margin-top:4px">
             Storage: ${v2GetStorageKind()}
@@ -3131,6 +3143,7 @@
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="train">Clear RSS-train-data</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="extended-history">Toggle extended history</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="ui-theme">Theme: Auto/Dark/Light</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="train-history">Train history: Auto/Force</button>
           </div>
         `;
 
@@ -3321,6 +3334,14 @@
               state.v2Options.uiTheme = next;
               v2ApplyUiTheme();
               v2SaveOptions();
+              state.ui?.render?.();
+            }
+
+            if (kind === "train-history") {
+              const cur = String(state.v2Options?.trainHistoryMode || "auto");
+              state.v2Options.trainHistoryMode = cur === "force" ? "auto" : "force";
+              v2SaveOptions();
+              await refreshAllBadges();
               state.ui?.render?.();
             }
           });
@@ -3814,14 +3835,16 @@
       }
       let pAi = rssPredictAiProba(state.v2Model, mlFeatures);
 
-      // Pull history features only when needed (uncertain band) to reduce requests and speed.
-      const desiredHistoryLevel = state.v2Options.enableExtendedHistoryFetch
-        ? 2
-        : 1;
+      // Pull history features:
+      // - Normal mode: only in an uncertain band to reduce requests.
+      // - Train mode: optionally force history fetch so exported train rows have non-zero hist features.
+      const desiredHistoryLevel = state.v2Options.enableExtendedHistoryFetch ? 2 : 1;
+      const trainHistoryMode = String(state.v2Options.trainHistoryMode || "auto");
+      const forceHist = trainHistoryMode === "force";
+      const inUncertainBand = pAi >= 0.55 && pAi <= 0.85;
       const needHist =
         state.v2Options.enableHistoryFetch &&
-        pAi >= 0.55 &&
-        pAi <= 0.85 &&
+        (forceHist || inUncertainBand) &&
         (state.userHistoryLevel.get(username) || 0) < desiredHistoryLevel;
 
       if (needHist) {
@@ -4286,6 +4309,7 @@
         const base = await computeEntryBase({
           username: entry.username,
           text: entry.text,
+          context: entry.context || null,
         });
         baseById.set(entry.id, base);
 
