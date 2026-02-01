@@ -1598,6 +1598,27 @@
       ...(options?.v2 || {}),
     };
 
+    // If the shipped model starts using extended-history features, enable them by default.
+    // This preserves backwards behavior (still opt-in) until a pretrained model actually benefits.
+    try {
+      const w = RSS_V2_DEFAULT_MODEL?.weights || {};
+      const usesExtendedHistory = [
+        "histCommentsCount",
+        "histCommentsAvgDeltaHours",
+        "histCommentsTemplateMaxRepeat",
+        "histCommentsBurstiness01",
+        "histSubmittedCount",
+        "histSubmittedAvgDeltaHours",
+        "histSubmittedTitleTemplateMaxRepeat",
+        "histSubmittedBurstiness01",
+      ].some((k) => Number(w?.[k] || 0) !== 0);
+      if (usesExtendedHistory && typeof options?.v2?.enableExtendedHistoryFetch !== "boolean") {
+        v2Options.enableExtendedHistoryFetch = true;
+      }
+    } catch {
+      // Ignore.
+    }
+
     const state = {
       open: false,
       selectedEntryId: null,
