@@ -234,6 +234,7 @@
         .rss-row { background: rgba(17,24,39,0.55); }
         .rss-badge { background: rgba(17,24,39,0.75); }
         .rss-popover { background: rgba(17,24,39,0.96); }
+        .rss-bg-solid { background: rgba(17,24,39,0.96); }
       }
 
       /* Meters */
@@ -269,10 +270,21 @@
         border-radius: 0.5rem;
         padding: 8px 10px;
         background: rgba(255,255,255,0.8);
+        color: var(--rss-text);
         cursor: pointer;
       }
       .rss-btn:hover { background: rgba(255,255,255,1); }
       .rss-btn-primary { border-color: rgba(37, 99, 235, 0.35); }
+
+      .rss-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        .rss-btn { background: rgba(17,24,39,0.65); }
+        .rss-btn:hover { background: rgba(17,24,39,0.82); }
+      }
 
       .rss-toggle {
         display: flex;
@@ -334,8 +346,13 @@
         width: 28px;
         height: 28px;
         background: rgba(255,255,255,0.9);
+        color: var(--rss-text);
         cursor: pointer;
         line-height: 1;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        .rss-popover-close { background: rgba(17,24,39,0.7); }
       }
     `;
   };
