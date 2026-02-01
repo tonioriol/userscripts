@@ -29,6 +29,28 @@ if (!api?.pickMlFeaturesFromText) {
   process.exit(2);
 }
 
+const extractJsonObjectFromLine = (line) => {
+  const s = String(line || "").trim();
+  if (!s) return null;
+
+  // Fast path: pure JSON.
+  try {
+    return JSON.parse(s);
+  } catch {
+    // Fall back to extracting the first {...} blob. This tolerates DevTools pastes like:
+    //   {"kind":"rss-train-data",...} RedditSlopSleuth.user.js:2763:27
+  }
+
+  const i = s.indexOf("{");
+  const j = s.lastIndexOf("}");
+  if (i < 0 || j < 0 || j <= i) return null;
+  try {
+    return JSON.parse(s.slice(i, j + 1));
+  } catch {
+    return null;
+  }
+};
+
 const parseArgs = (argv) => {
   const args = { in: null, out: null };
   for (let i = 0; i < argv.length; i += 1) {
@@ -51,7 +73,8 @@ const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 
 const out = [];
 for (const l of lines) {
-  const obj = JSON.parse(l);
+  const obj = extractJsonObjectFromLine(l);
+  if (!obj) continue;
   const label = String(obj.label || "").toLowerCase();
   if (label !== "human" && label !== "ai") continue;
   const text = String(obj.text || "");
