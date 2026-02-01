@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RedditSlopSleuth
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.20
+// @version      0.1.21
 // @description  Heuristic bot/AI slop indicator for Reddit with per-user badges and a details side panel.
 // @author       Toni Oriol
 // @match        *://www.reddit.com/*
@@ -16,7 +16,7 @@
 (() => {
   "use strict";
 
-  const RSS_SCRIPT_VERSION = "0.1.20";
+  const RSS_SCRIPT_VERSION = "0.1.21";
 
   // ---------------------------------------------------------------------------
   // File map (single-file userscript)
@@ -3099,6 +3099,24 @@
           return `${evalAt(0.5)} | ${evalAt(RSS_V2_THRESHOLDS.itemAi)}`;
         })();
 
+        const uiThemeLabel = (() => {
+          const cur = String(state.v2Options?.uiTheme || "auto");
+          return cur.toUpperCase();
+        })();
+
+        const historyFetchLabel = state.v2Options?.enableHistoryFetch
+          ? "ON"
+          : "OFF";
+
+        const extendedHistoryLabel = state.v2Options?.enableExtendedHistoryFetch
+          ? "ON"
+          : "OFF";
+
+        const trainHistoryLabel =
+          String(state.v2Options?.trainHistoryMode || "auto") === "force"
+            ? "FORCE"
+            : "AUTO";
+
         v2Panel.innerHTML = `
           <div class="rss-font-semibold">v2 ML</div>
           <div class="rss-text-sm rss-muted" style="margin-top:4px">
@@ -3111,10 +3129,10 @@
             Model updated: ${modelUpdatedAt}
           </div>
           <div class="rss-text-sm rss-muted" style="margin-top:4px">
-            History fetch: ${state.v2Options?.enableHistoryFetch ? "on" : "off"} · extended: ${state.v2Options?.enableExtendedHistoryFetch ? "on" : "off"} · quota/day/user: ${Number(state.v2Options?.historyDailyQuotaPerUser ?? 0) || 0}
+            History fetch: ${escapeHtml(historyFetchLabel)} · extended: ${escapeHtml(extendedHistoryLabel)} · quota/day/user: ${Number(state.v2Options?.historyDailyQuotaPerUser ?? 0) || 0}
           </div>
           <div class="rss-text-sm rss-muted" style="margin-top:4px">
-            Train history mode: ${escapeHtml(state.v2Options?.trainHistoryMode || "auto")}
+            Train history mode: ${escapeHtml(trainHistoryLabel)}
           </div>
           <div class="rss-text-sm rss-muted" style="margin-top:6px">
             Top weights: ${topWeights.map(([k, v]) => `${k}(${fmtScore(v, { signed: true, decimals: 2 })})`).join(" · ")}
@@ -3132,7 +3150,7 @@
             Storage: ${v2GetStorageKind()}
           </div>
           <div class="rss-text-sm rss-muted" style="margin-top:4px">
-            UI theme: ${escapeHtml(state.v2Options?.uiTheme || "auto")}
+            UI theme: ${escapeHtml(uiThemeLabel)}
           </div>
           <div class="rss-flex rss-gap-2" style="margin-top:8px; flex-wrap: wrap">
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="labels">Copy labels JSON</button>
@@ -3146,9 +3164,10 @@
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="model">Reset model</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="labels">Clear labels</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="train">Clear RSS-train-data</button>
-            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="extended-history">Toggle extended history</button>
-            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="ui-theme">Theme: Auto/Dark/Light</button>
-            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="train-history">Train history: Auto/Force</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="history-fetch">History fetch: ${escapeHtml(historyFetchLabel)}</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="extended-history">Extended history: ${escapeHtml(extendedHistoryLabel)}</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="train-history">Train history: ${escapeHtml(trainHistoryLabel)}</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="ui-theme">Theme: ${escapeHtml(uiThemeLabel)}</button>
           </div>
         `;
 
@@ -3324,6 +3343,13 @@
             e.preventDefault();
             e.stopPropagation();
             const kind = btn.getAttribute("data-rss-v2-toggle");
+            if (kind === "history-fetch") {
+              state.v2Options.enableHistoryFetch = !state.v2Options.enableHistoryFetch;
+              v2SaveOptions();
+              await refreshAllBadges();
+              state.ui?.render?.();
+            }
+
             if (kind === "extended-history") {
               state.v2Options.enableExtendedHistoryFetch =
                 !state.v2Options.enableExtendedHistoryFetch;
