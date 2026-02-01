@@ -43,7 +43,8 @@ for (const l of lines) {
   if (label !== "human" && label !== "ai") continue;
   const y = label === "ai";
   const x = obj.features || {};
-  samples.push({ x, y });
+  const w = Number(obj.weight ?? obj.w ?? 1) || 1;
+  samples.push({ x, y, w });
 }
 
 if (samples.length < 10) {
