@@ -62,12 +62,14 @@ export const trainLogReg = (samples, opts = {}) => {
     for (const s of data) {
       const y = s.y ? 1 : 0;
       const x = s.x || {};
+      const sampleWeight = Number(s.w ?? s.weight ?? 1) || 1;
+      if (!Number.isFinite(sampleWeight) || sampleWeight <= 0) continue;
 
       const p = predictProba({ weights, bias }, x);
       const err = p - y; // gradient of log-loss
 
       // Bias update.
-      bias -= lr * err;
+      bias -= lr * sampleWeight * err;
 
       // Weight updates (sparse).
       for (const [k, v] of Object.entries(x)) {
@@ -75,7 +77,9 @@ export const trainLogReg = (samples, opts = {}) => {
         if (!Number.isFinite(vv) || vv === 0) continue;
         const wk = weights[k] || 0;
         // L2 on weights (not bias)
-        const grad = err * vv + l2 * wk;
+        // Weighted logloss + unweighted L2:
+        //   grad = w_i * err * x + l2 * w
+        const grad = sampleWeight * err * vv + l2 * wk;
         weights[k] = wk - lr * grad;
       }
     }
@@ -89,4 +93,3 @@ export const topWeights = (model, n = 25) => {
   pairs.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
   return pairs.slice(0, n);
 };
-
