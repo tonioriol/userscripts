@@ -1304,6 +1304,14 @@
       histSubmittedTitleTemplateMaxRepeat: 0,
       histSubmittedAvgDeltaHours: 0,
       histSubmittedBurstiness01: 0,
+
+      // Context flags (so training can see what surface the text came from).
+      // These are cheap and allow future per-surface calibration.
+      ctxSubreddit: 0,
+      ctxIsComment: 0,
+      ctxIsPost: 0,
+      ctxHasPostTitle: 0,
+      ctxHasPermalink: 0,
     };
   };
 
@@ -1375,6 +1383,7 @@
   const RSS_V2_MODEL_STORAGE_KEY = "rss:v2:model";
   const RSS_V2_LABELS_STORAGE_KEY = "rss:v2:labels";
   const RSS_V2_MODEL_HISTORY_STORAGE_KEY = "rss:v2:modelHistory";
+  const RSS_V2_OPTIONS_STORAGE_KEY = "rss:v2:options";
 
   // Default shipped weights (placeholder until you run offline pretraining).
   // This is intentionally conservative; it will be fine-tuned locally once label mode is used.
@@ -1538,6 +1547,19 @@
     return [];
   };
 
+  const rssLoadOptions = (win) => {
+    const stored = rssLoadJson(win, RSS_V2_OPTIONS_STORAGE_KEY);
+    return stored && typeof stored === "object" ? stored : {};
+  };
+
+  const rssSaveOptions = (win, options) => {
+    return rssSaveJson(win, RSS_V2_OPTIONS_STORAGE_KEY, {
+      version: 1,
+      updatedAt: Date.now(),
+      options,
+    });
+  };
+
   const rssLoadTrainData = (win) => {
     const stored = rssLoadJson(win, RSS_V2_TRAIN_DATA_STORAGE_KEY);
     if (Array.isArray(stored)) return stored;
@@ -1556,8 +1578,9 @@
   const rssTrainRowSig = (row) => {
     const url = String(row?.url || "");
     const username = String(row?.username || "");
+    const entryId = String(row?.entryId || row?.context?.permalink || "");
     const text = compactWs(String(row?.text || "")).slice(0, 160);
-    return `${url}|${username}|${text}`;
+    return `${url}|${username}|${entryId}|${text}`;
   };
 
   const rssCompactNumberMap = (raw) => {
@@ -1587,6 +1610,15 @@
   };
 
   const createRedditSlopSleuth = ({ win, doc, fetchFn, options = {} }) => {
+    const storedV2Options = (() => {
+      try {
+        const s = rssLoadOptions(win);
+        return s && typeof s === "object" ? s.options || {} : {};
+      } catch {
+        return {};
+      }
+    })();
+
     const v2Options = {
       // Extra Reddit JSON fetches are implemented later in v2; keep the flag here so tests and
       // users can control behavior deterministically.
@@ -1595,6 +1627,7 @@
       // Keep them opt-in until we ship pretrained weights that actually use these features.
       enableExtendedHistoryFetch: false,
       historyDailyQuotaPerUser: 4,
+      ...(storedV2Options || {}),
       ...(options?.v2 || {}),
     };
 
@@ -1755,6 +1788,14 @@
         win,
         Array.isArray(state.v2TrainPersisted) ? state.v2TrainPersisted : [],
       );
+
+    const v2SaveOptions = () => {
+      try {
+        rssSaveOptions(win, state.v2Options);
+      } catch {
+        // Ignore.
+      }
+    };
 
     const v2PushModelSnapshot = () => {
       try {
@@ -2916,7 +2957,7 @@
             Model updated: ${modelUpdatedAt}
           </div>
           <div class="rss-text-sm rss-muted" style="margin-top:4px">
-            History fetch: ${state.v2Options?.enableHistoryFetch ? "on" : "off"} · quota/day/user: ${Number(state.v2Options?.historyDailyQuotaPerUser ?? 0) || 0}
+            History fetch: ${state.v2Options?.enableHistoryFetch ? "on" : "off"} · extended: ${state.v2Options?.enableExtendedHistoryFetch ? "on" : "off"} · quota/day/user: ${Number(state.v2Options?.historyDailyQuotaPerUser ?? 0) || 0}
           </div>
           <div class="rss-text-sm rss-muted" style="margin-top:6px">
             Top weights: ${topWeights.map(([k, v]) => `${k}(${fmtScore(v, { signed: true, decimals: 2 })})`).join(" · ")}
@@ -2939,6 +2980,7 @@
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="model">Reset model</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="labels">Clear labels</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="train">Clear RSS-train-data</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="extended-history">Toggle extended history</button>
           </div>
         `;
 
@@ -3102,6 +3144,21 @@
               state.v2TrainBuffer = [];
               state.v2TrainPersisted = [];
               v2SaveTrainData();
+              state.ui?.render?.();
+            }
+          });
+        });
+
+        v2Panel.querySelectorAll("[data-rss-v2-toggle]").forEach((btn) => {
+          btn.addEventListener("click", async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const kind = btn.getAttribute("data-rss-v2-toggle");
+            if (kind === "extended-history") {
+              state.v2Options.enableExtendedHistoryFetch =
+                !state.v2Options.enableExtendedHistoryFetch;
+              v2SaveOptions();
+              await refreshAllBadges();
               state.ui?.render?.();
             }
           });
@@ -3582,7 +3639,7 @@
       authorEl?.insertAdjacentElement?.("afterend", badgeEl);
     };
 
-    const computeEntryBase = async ({ username, text }) => {
+    const computeEntryBase = async ({ username, text, context }) => {
       const perUser = state.perUserHistory.get(username) || new Map();
       state.perUserHistory.set(username, perUser);
 
@@ -3591,6 +3648,13 @@
 
       // v2 ML: compute base features first.
       const mlFeatures = pickMlFeaturesFromText(text);
+      if (context && typeof context === "object") {
+        if (context.subreddit) mlFeatures.ctxSubreddit = 1;
+        if (context.kind === "comment") mlFeatures.ctxIsComment = 1;
+        if (context.kind === "post") mlFeatures.ctxIsPost = 1;
+        if (context.postTitle) mlFeatures.ctxHasPostTitle = 1;
+        if (context.permalink) mlFeatures.ctxHasPermalink = 1;
+      }
       let pAi = rssPredictAiProba(state.v2Model, mlFeatures);
 
       // Pull history features only when needed (uncertain band) to reduce requests and speed.
@@ -3723,8 +3787,9 @@
       };
     };
 
-    const computeEntry = async ({ element, authorEl, username, text }) => {
-      const base = await computeEntryBase({ username, text });
+    const computeEntry = async ({ element, authorEl, username, text, entryId }) => {
+      const ctx = extractEntryContext(element);
+      const base = await computeEntryBase({ username, text, context: ctx });
 
       // Running aggregation for incremental scoring (single-entry attach path). Full recompute uses
       // a 2-pass aggregator so every entry sees the same per-user mean.
@@ -3748,8 +3813,9 @@
         kind: "rss-train-data",
         url: String(win?.location?.href || ""),
         username,
-        entryId: null,
+        entryId: entryId || null,
         text: String(text || ""),
+        context: ctx,
         features: base.ml.features,
       });
 
@@ -3811,6 +3877,7 @@
         authorEl,
         username: u,
         text,
+        entryId,
       });
       entry.scores = computed.scores;
       entry.reasons = computed.reasons;
