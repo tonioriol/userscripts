@@ -76,6 +76,27 @@ cat ./data/hc3.features.jsonl ./train/local/rss.human.features.jsonl > ./data/hc
 node train/train-from-jsonl.js --in ./data/hc3_plus_rss.features.jsonl --out ./train/model.json
 ```
 
+If you want to upweight the real-browsing human negatives (to reduce false positives), add a `weight` field to those rows before training.
+Example (weights RSS humans at 6x, leaves HC3 rows at 1x):
+
+```bash
+cat ./data/hc3.features.jsonl > ./data/hc3_plus_rss_weighted.features.jsonl
+python3 - <<'PY'
+import json
+src = './train/local/rss.human.features.jsonl'
+dst = './data/hc3_plus_rss_weighted.features.jsonl'
+with open(src, 'r', encoding='utf-8') as f, open(dst, 'a', encoding='utf-8') as out:
+  for line in f:
+    line=line.strip()
+    if not line: continue
+    obj=json.loads(line)
+    if obj.get('label') == 'human':
+      obj['weight'] = 6
+    out.write(json.dumps(obj, ensure_ascii=False) + '\n')
+PY
+node train/train-from-jsonl.js --in ./data/hc3_plus_rss_weighted.features.jsonl --out ./train/model.json
+```
+
 Notes:
 - The repo ignores `train/model.json` by default; the shipped weights live in [`RSS_V2_DEFAULT_MODEL`](../redditslopsleuth.user.js:1365).
 
