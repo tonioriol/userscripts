@@ -1397,6 +1397,9 @@
   };
 
   const RSS_V2_TELEMETRY_KEY = "rss:v2:telemetry";
+  const RSS_V2_TRAIN_DATA_STORAGE_KEY = "rss:v2:train-data";
+  const RSS_V2_TRAIN_PERSIST_MAX = 800;
+  const RSS_V2_TRAIN_PERSIST_DEDUPE_WINDOW = 200;
 
   const rssSigmoid = (z) => 1 / (1 + Math.exp(-z));
 
@@ -1506,6 +1509,28 @@
     return [];
   };
 
+  const rssLoadTrainData = (win) => {
+    const stored = rssLoadJson(win, RSS_V2_TRAIN_DATA_STORAGE_KEY);
+    if (Array.isArray(stored)) return stored;
+    if (stored && Array.isArray(stored.records)) return stored.records;
+    return [];
+  };
+
+  const rssSaveTrainData = (win, records) => {
+    rssSaveJson(win, RSS_V2_TRAIN_DATA_STORAGE_KEY, {
+      version: 1,
+      updatedAt: Date.now(),
+      records,
+    });
+  };
+
+  const rssTrainRowSig = (row) => {
+    const url = String(row?.url || "");
+    const username = String(row?.username || "");
+    const text = compactWs(String(row?.text || "")).slice(0, 160);
+    return `${url}|${username}|${text}`;
+  };
+
   const createRedditSlopSleuth = ({ win, doc, fetchFn, options = {} }) => {
     const v2Options = {
       // Extra Reddit JSON fetches are implemented later in v2; keep the flag here so tests and
@@ -1548,6 +1573,7 @@
       v2UserAgg: new Map(), // username -> { n, meanPAi }
       v2UserLabel: new Map(), // username -> "human" | "ai"
       v2TrainBuffer: [], // last N entries for console export
+      v2TrainPersisted: rssLoadTrainData(win), // persisted across navigations
 
       v2Options,
     };
@@ -1646,6 +1672,9 @@
     const v2SaveModelHistory = () =>
       rssSaveJson(win, RSS_V2_MODEL_HISTORY_STORAGE_KEY, state.v2ModelHistory);
 
+    const v2SaveTrainData = () =>
+      rssSaveTrainData(win, Array.isArray(state.v2TrainPersisted) ? state.v2TrainPersisted : []);
+
     const v2PushModelSnapshot = () => {
       try {
         state.v2ModelHistory = Array.isArray(state.v2ModelHistory)
@@ -1707,6 +1736,27 @@
       state.v2TrainBuffer.push(row);
       if (state.v2TrainBuffer.length > 200)
         state.v2TrainBuffer = state.v2TrainBuffer.slice(-150);
+
+      // Persist across navigations (so you can browse many pages and export later).
+      try {
+        const next = Array.isArray(state.v2TrainPersisted)
+          ? state.v2TrainPersisted
+          : [];
+
+        const sig = rssTrainRowSig(row);
+        const recent = next.slice(-RSS_V2_TRAIN_PERSIST_DEDUPE_WINDOW);
+        if (recent.some((r) => rssTrainRowSig(r) === sig)) return;
+
+        next.push({ ...row, ts: Date.now() });
+        state.v2TrainPersisted =
+          next.length > RSS_V2_TRAIN_PERSIST_MAX
+            ? next.slice(-RSS_V2_TRAIN_PERSIST_MAX)
+            : next;
+
+        v2SaveTrainData();
+      } catch {
+        // Ignore quota/private mode.
+      }
     };
 
     const safeHeaderNumber = (headers, name) => {
@@ -2717,13 +2767,15 @@
           <div class="rss-flex rss-gap-2" style="margin-top:8px; flex-wrap: wrap">
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="labels">Copy labels JSON</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="model">Copy model JSON</button>
-            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="train-jsonl">Copy RSS-train-data JSONL (buffer)</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="train-jsonl">Copy RSS-train-data JSONL (this tab)</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="train-jsonl-all">Copy RSS-train-data JSONL (all pages)</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-import="labels">Import labels JSON</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-import="model">Import model JSON</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-export="train">Console: RSS-train-data JSONL (buffer)</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-undo="model">Undo tune</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="model">Reset model</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="labels">Clear labels</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-reset="train">Clear RSS-train-data</button>
           </div>
         `;
 
@@ -2753,6 +2805,14 @@
               const jsonl = state.v2TrainBuffer
                 .map((row) => JSON.stringify(row))
                 .join("\n");
+              await copyToClipboard(jsonl + (jsonl ? "\n" : ""));
+              return;
+            }
+            if (kind === "train-jsonl-all") {
+              const records = Array.isArray(state.v2TrainPersisted)
+                ? state.v2TrainPersisted
+                : [];
+              const jsonl = records.map((row) => JSON.stringify(row)).join("\n");
               await copyToClipboard(jsonl + (jsonl ? "\n" : ""));
               return;
             }
@@ -2872,6 +2932,13 @@
               state.v2UserLabel.clear();
               v2SaveLabels();
               await refreshAllBadges();
+              state.ui?.render?.();
+              return;
+            }
+            if (kind === "train") {
+              state.v2TrainBuffer = [];
+              state.v2TrainPersisted = [];
+              v2SaveTrainData();
               state.ui?.render?.();
             }
           });
