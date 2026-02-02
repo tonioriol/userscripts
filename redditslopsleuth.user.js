@@ -1,11 +1,15 @@
 // ==UserScript==
 // @name         RedditSlopSleuth
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.23
+// @version      0.1.35
 // @description  Heuristic bot/AI slop indicator for Reddit with per-user badges and a details side panel.
 // @author       Toni Oriol
+// @run-at       document-idle
+// @match        *://reddit.com/*
 // @match        *://www.reddit.com/*
 // @match        *://old.reddit.com/*
+// @match        *://new.reddit.com/*
+// @match        *://sh.reddit.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=reddit.com
 // @grant        GM_addStyle
 // @license      AGPL-3.0-or-later
@@ -16,7 +20,19 @@
 (() => {
   "use strict";
 
-  const RSS_SCRIPT_VERSION = "0.1.23";
+  const RSS_SCRIPT_VERSION = "0.1.35";
+
+  // Minimal startup signal so we can tell if the userscript is running at all.
+  // (Kept as console.log so it shows up even when "verbose"/"debug" filters are off.)
+  try {
+    // eslint-disable-next-line no-console
+    console.log("[RSS] start", {
+      version: RSS_SCRIPT_VERSION,
+      href: String(typeof window !== "undefined" ? window.location?.href : ""),
+    });
+  } catch {
+    // Ignore.
+  }
 
   // ---------------------------------------------------------------------------
   // File map (single-file userscript)
@@ -1683,6 +1699,14 @@
     return [];
   };
 
+  const rssLoadTrainDataFresh = (win) => {
+    try {
+      return rssLoadTrainData(win);
+    } catch {
+      return [];
+    }
+  };
+
   const rssSaveTrainData = (win, records) => {
     return rssSaveJson(win, RSS_V2_TRAIN_DATA_STORAGE_KEY, {
       version: 1,
@@ -1750,6 +1774,8 @@
       // UI theme for the panel/popover.
       // "auto" uses prefers-color-scheme; "dark"/"light" force our CSS vars.
       uiTheme: "auto",
+      // Diagnostics: enable console.debug logging + show extra counters.
+      debugLogging: false,
       historyDailyQuotaPerUser: 4,
       ...(storedV2Options || {}),
       ...(options?.v2 || {}),
@@ -1806,11 +1832,35 @@
       v2UserAgg: new Map(), // username -> { n, meanPAi }
       v2UserLabel: new Map(), // username -> "human" | "ai"
       v2TrainBuffer: [], // last N entries for console export
-      v2TrainPersisted: rssLoadTrainData(win), // persisted across navigations
+      v2TrainPersisted: rssLoadTrainDataFresh(win), // persisted across navigations
       v2TrainPersistErrorCount: 0,
       v2TrainPersistLastErrorAt: 0,
 
       v2Options,
+
+      // Debug counters (helps diagnose "why am I only getting ~100 rows?")
+      v2Debug: {
+        scan: {
+          cycles: 0,
+          lastAt: 0,
+          nodes: 0,
+          skippedUi: 0,
+          skippedNoAuthor: 0,
+          skippedNoUsername: 0,
+          skippedHasBadge: 0,
+          processedReused: 0,
+          attached: 0,
+        },
+        train: {
+          added: 0,
+          deduped: 0,
+          capped: 0,
+          lastAddedAt: 0,
+          lastSavedAt: 0,
+          lastSaveOk: false,
+        },
+        lastScanLogAt: 0,
+      },
     };
 
     const extractEntryContext = (element) => {
@@ -1937,6 +1987,21 @@
         Array.isArray(state.v2TrainPersisted) ? state.v2TrainPersisted : [],
       );
 
+    const v2ReloadTrainData = () => {
+      state.v2TrainPersisted = rssLoadTrainDataFresh(win);
+    };
+
+    const v2DebugLog = (...args) => {
+      try {
+        if (!state.v2Options?.debugLogging) return;
+        // Keep as console.log (not debug) so Firefox devtools shows it by default.
+        // eslint-disable-next-line no-console
+        console.log("[RSS]", ...args);
+      } catch {
+        // Ignore.
+      }
+    };
+
     const v2SaveOptions = () => {
       try {
         rssSaveOptions(win, state.v2Options);
@@ -2017,9 +2082,14 @@
 
         const sig = rssTrainRowSig(persistRow);
         const recent = next.slice(-RSS_V2_TRAIN_PERSIST_DEDUPE_WINDOW);
-        if (recent.some((r) => rssTrainRowSig(r) === sig)) return;
+        if (recent.some((r) => rssTrainRowSig(r) === sig)) {
+          state.v2Debug.train.deduped += 1;
+          return;
+        }
 
         next.push({ ...persistRow, ts: Date.now() });
+        if (next.length > RSS_V2_TRAIN_PERSIST_MAX) state.v2Debug.train.capped += 1;
+
         state.v2TrainPersisted =
           next.length > RSS_V2_TRAIN_PERSIST_MAX
             ? next.slice(-RSS_V2_TRAIN_PERSIST_MAX)
@@ -2029,12 +2099,20 @@
         if (!ok) {
           state.v2TrainPersistErrorCount += 1;
           state.v2TrainPersistLastErrorAt = Date.now();
+          state.v2Debug.train.lastSaveOk = false;
           // Retry once with a smaller window in case we hit storage limits.
           state.v2TrainPersisted = state.v2TrainPersisted.slice(-120);
           v2SaveTrainData();
+        } else {
+          state.v2Debug.train.lastSaveOk = true;
         }
+
+        state.v2Debug.train.added += 1;
+        state.v2Debug.train.lastAddedAt = Date.now();
+        state.v2Debug.train.lastSavedAt = Date.now();
       } catch {
         // Ignore quota/private mode.
+        state.v2Debug.train.lastSaveOk = false;
       }
     };
 
@@ -3128,6 +3206,8 @@
             ? "FORCE"
             : "AUTO";
 
+        const debugLoggingLabel = state.v2Options?.debugLogging ? "ON" : "OFF";
+
         v2Panel.innerHTML = `
           <div class="rss-font-semibold">v2 ML</div>
           <div class="rss-text-sm rss-muted" style="margin-top:4px">
@@ -3144,6 +3224,9 @@
           </div>
           <div class="rss-text-sm rss-muted" style="margin-top:4px">
             Train history mode: ${escapeHtml(trainHistoryLabel)}
+          </div>
+          <div class="rss-text-sm rss-muted" style="margin-top:4px">
+            Debug logging: ${escapeHtml(debugLoggingLabel)}
           </div>
           <div class="rss-text-sm rss-muted" style="margin-top:6px">
             Top weights: ${topWeights.map(([k, v]) => `${k}(${fmtScore(v, { signed: true, decimals: 2 })})`).join(" · ")}
@@ -3178,6 +3261,7 @@
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="history-fetch">History fetch: ${escapeHtml(historyFetchLabel)}</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="extended-history">Extended history: ${escapeHtml(extendedHistoryLabel)}</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="train-history">Train history: ${escapeHtml(trainHistoryLabel)}</button>
+            <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="debug-logging">Debug: ${escapeHtml(debugLoggingLabel)}</button>
             <button type="button" class="rss-btn rss-focus-ring" data-rss-v2-toggle="ui-theme">Theme: ${escapeHtml(uiThemeLabel)}</button>
           </div>
         `;
@@ -3212,13 +3296,17 @@
               return;
             }
             if (kind === "train-jsonl-all") {
+              // Reload persisted data from storage so exporting from a different tab still works.
+              // (Other tabs may have been the ones collecting rows.)
+              v2ReloadTrainData();
               const records = Array.isArray(state.v2TrainPersisted)
                 ? state.v2TrainPersisted
                 : [];
-              // Snapshot to avoid oddities if the array is mutated while we export.
               const snapshot = records.slice();
               const jsonl = snapshot.map((row) => JSON.stringify(row)).join("\n");
               await copyToClipboard(jsonl + (jsonl ? "\n" : ""));
+              // Keep the drawer counts accurate after an export from storage.
+              state.ui?.render?.();
               return;
             }
             if (kind === "train") {
@@ -3406,6 +3494,15 @@
               return;
             }
 
+            if (kind === "debug-logging") {
+              state.v2Options.debugLogging = !state.v2Options.debugLogging;
+              v2SaveOptions();
+              rerender();
+              // No full recompute required; scanRoot will start emitting throttled logs.
+              v2DebugLog("debug logging", state.v2Options.debugLogging ? "ON" : "OFF");
+              return;
+            }
+
             if (kind === "ui-theme") {
               const cur = String(state.v2Options?.uiTheme || "auto");
               const next =
@@ -3563,6 +3660,26 @@
           },
           true,
         );
+      }
+
+      // Sync persisted state across tabs/windows.
+      // This prevents “all pages” counts from appearing stuck if another tab did the collecting.
+      try {
+        win.addEventListener("storage", (e) => {
+          const k = e?.key;
+          if (k !== RSS_V2_TRAIN_DATA_STORAGE_KEY && k !== RSS_V2_OPTIONS_STORAGE_KEY)
+            return;
+          if (k === RSS_V2_TRAIN_DATA_STORAGE_KEY) v2ReloadTrainData();
+          if (k === RSS_V2_OPTIONS_STORAGE_KEY) {
+            const s = rssLoadOptions(win);
+            const next = s && typeof s === "object" ? s.options || {} : {};
+            state.v2Options = { ...state.v2Options, ...(next || {}) };
+            v2ApplyUiTheme();
+          }
+          if (state.open) state.ui?.render?.();
+        });
+      } catch {
+        // Ignore.
       }
 
       root.appendChild(gearBtn);
@@ -3831,20 +3948,93 @@
     };
 
     const resolveFeedInsertionEl = (container) => {
+      // Home feed often has multiple links in the credit bar (icon + text). We must choose the
+      // *text* link, otherwise the badge ends up between the icon and the subreddit name.
+      const creditBar = (() => {
+        try {
+          return (
+            container.querySelector?.('span[slot="credit-bar"], span[id^="feed-post-credit-bar-"]') ||
+            null
+          );
+        } catch {
+          return null;
+        }
+      })();
+
+      const subredditLink = (() => {
+        try {
+          const cands = Array.from(
+            (creditBar || container).querySelectorAll(
+              'a[data-testid="subreddit-name"], a[href^="/r/"], a[href*="/r/"]',
+            ),
+          );
+
+          // Prefer the visible r/<name> text link.
+          for (const a of cands) {
+            const t = compactWs(safeText(a));
+            if (!t) continue;
+            if (/^r\//i.test(t)) return a;
+          }
+
+          // Otherwise: any non-empty text link.
+          for (const a of cands) {
+            const t = compactWs(safeText(a));
+            if (!t) continue;
+            return a;
+          }
+        } catch {
+          // Ignore.
+        }
+        return null;
+      })();
+
       return (
-        // Prefer the hovercard host itself; inserting inside its slotted structure can get hidden.
+        // Prefer the credit bar container itself so we can insert *inside* it.
+        // (Inserting after a child link can produce weird wrapping/offset on the home feed.)
+        creditBar ||
+        subredditLink ||
+        container.querySelector?.('[data-testid="subreddit-name"]') ||
+        // If present, the overflow menu sits in the same meta row and is safe to insert after.
+        container.querySelector?.("shreddit-post-overflow-menu") ||
+        container.querySelector?.('[slot="credit-bar"]') ||
+        // Fallback: hovercard host.
         container.querySelector?.(
           'faceplate-hovercard[data-id="community-hover-card"], faceplate-hovercard',
         ) ||
-        container.querySelector?.('[data-testid="subreddit-name"]') ||
-        container.querySelector?.('[slot="credit-bar"]') ||
-        container.querySelector?.("shreddit-post-overflow-menu") ||
         null
       );
     };
 
     const hasExistingBadgeNear = (authorEl) => {
       if (!authorEl) return false;
+
+      // Home feed: if we're using the credit-bar container as our insertion target,
+      // detect badges inside it.
+      try {
+        const creditBar =
+          authorEl?.matches?.('span[slot="credit-bar"], span[id^="feed-post-credit-bar-"]')
+            ? authorEl
+            : authorEl?.closest?.(
+                'span[slot="credit-bar"], span[id^="feed-post-credit-bar-"]',
+              );
+        if (creditBar?.querySelector?.(`[${BADGE_ATTR}="true"]`)) return true;
+      } catch {
+        // Ignore.
+      }
+
+      const isUserLink = (() => {
+        try {
+          if (!(authorEl instanceof win.Element)) return false;
+          if (!authorEl.matches?.("a[href]")) return false;
+          const href = String(authorEl.getAttribute?.("href") || "");
+          return href.startsWith("/user/") ||
+            href.startsWith("/u/") ||
+            href.includes("/user/") ||
+            href.includes("/u/");
+        } catch {
+          return false;
+        }
+      })();
 
       const rplHover = closestAcrossShadow(win, authorEl, "rpl-hovercard");
       if (rplHover?.nextElementSibling?.getAttribute?.(BADGE_ATTR) === "true")
@@ -3854,8 +4044,13 @@
       if (authorMeta?.nextElementSibling?.getAttribute?.(BADGE_ATTR) === "true")
         return true;
 
-      const nowrap = authorEl.querySelector?.(".whitespace-nowrap");
-      if (nowrap?.querySelector?.(`[${BADGE_ATTR}="true"]`)) return true;
+      // Only check within the author element for the "nowrap" case when the author element is
+      // actually the user link. Otherwise this can accidentally match a badge belonging to a
+      // different nearby post/comment (causing us to skip everything).
+      if (isUserLink) {
+        const nowrap = authorEl.querySelector?.(".whitespace-nowrap");
+        if (nowrap?.querySelector?.(`[${BADGE_ATTR}="true"]`)) return true;
+      }
 
       if (authorEl.nextElementSibling?.getAttribute?.(BADGE_ATTR) === "true")
         return true;
@@ -3864,6 +4059,56 @@
     };
 
     const insertBadge = ({ authorEl, badgeEl }) => {
+      // Home feed credit bar: insert the badge *inside* the credit bar so it stays inline.
+      try {
+        const creditBar =
+          authorEl?.matches?.('span[slot="credit-bar"], span[id^="feed-post-credit-bar-"]')
+            ? authorEl
+            : authorEl?.closest?.(
+                'span[slot="credit-bar"], span[id^="feed-post-credit-bar-"]',
+              );
+
+        if (creditBar) {
+          if (creditBar.querySelector?.(`[${BADGE_ATTR}="true"]`)) return;
+          const subLink = (() => {
+            try {
+              const cands = Array.from(
+                creditBar.querySelectorAll(
+                  'a[data-testid="subreddit-name"], a[href^="/r/"], a[href*="/r/"]',
+                ),
+              );
+              for (const a of cands) {
+                const t = compactWs(safeText(a));
+                if (/^r\//i.test(t)) return a;
+              }
+              for (const a of cands) {
+                const t = compactWs(safeText(a));
+                if (t) return a;
+              }
+            } catch {
+              // Ignore.
+            }
+            return null;
+          })();
+
+          // Some home-feed layouts make the subreddit link a block element, so inserting
+          // *after* it puts the badge on the next line. Appending *inside* keeps it inline.
+          const target =
+            subLink?.querySelector?.(".whitespace-nowrap") || subLink || null;
+
+          if (target) {
+            if (target.querySelector?.(`[${BADGE_ATTR}="true"]`)) return;
+            target.appendChild(badgeEl);
+            return;
+          }
+
+          creditBar.appendChild(badgeEl);
+          return;
+        }
+      } catch {
+        // Ignore.
+      }
+
       // Comments (new Reddit): author is often wrapped in <rpl-hovercard>. Inserting inside it can
       // cause layout glitches; place badge as a sibling after the hovercard.
       const rplHover = closestAcrossShadow(win, authorEl, "rpl-hovercard");
@@ -3887,10 +4132,36 @@
       }
 
       // Subreddit/post headers: keep name+badge together inside nowrap span to avoid line wraps.
-      const nowrap = authorEl?.querySelector?.(".whitespace-nowrap");
-      if (nowrap) {
-        nowrap.appendChild(badgeEl);
-        return;
+      // IMPORTANT: only do this when `authorEl` is the actual user link. Otherwise, we may append
+      // into a generic wrapper that persists across re-renders and end up duplicating badges.
+      const isUserLink = (() => {
+        try {
+          if (!(authorEl instanceof win.Element)) return false;
+          if (!authorEl.matches?.("a[href]")) return false;
+          const href = String(authorEl.getAttribute?.("href") || "");
+          return (
+            href.startsWith("/user/") ||
+            href.startsWith("/u/") ||
+            href.includes("/user/") ||
+            href.includes("/u/")
+          );
+        } catch {
+          return false;
+        }
+      })();
+
+      if (isUserLink) {
+        // Keep original positioning: insert badge right next to the visible username text.
+        // On Reddit, the username text is often inside a `.whitespace-nowrap` span within the link.
+        const nowrap = authorEl?.querySelector?.(".whitespace-nowrap");
+
+        // If a badge already exists in this nowrap slot, do not insert another.
+        if (nowrap?.querySelector?.(`[${BADGE_ATTR}="true"]`)) return;
+
+        if (nowrap) {
+          nowrap.appendChild(badgeEl);
+          return;
+        }
       }
 
       authorEl?.insertAdjacentElement?.("afterend", badgeEl);
@@ -4250,7 +4521,59 @@
       }
 
       const nodes = Array.from(nodesSet);
+
+      // Prefer *more specific/inner* nodes first.
+      // On the home feed, the parent `article` often appears before the credit-bar element.
+      // If we process `article` first we may insert next to an icon/link that is technically
+      // a user link but visually not where the badge belongs, and then the later (correct)
+      // credit-bar pass gets skipped by hasExistingBadgeNear().
+      try {
+        const depthOf = (el) => {
+          let d = 0;
+          let cur = el;
+          while (cur && cur.parentElement) {
+            d += 1;
+            cur = cur.parentElement;
+            if (d > 60) break;
+          }
+          return d;
+        };
+
+        const priority = (el) => {
+          try {
+            let p = 0;
+            if (el?.matches?.('span[slot="credit-bar"], span[id^="feed-post-credit-bar-"]'))
+              p += 10_000;
+            if (el?.matches?.('div[data-testid="comment"], shreddit-comment')) p += 5_000;
+            if (el?.matches?.('div[data-testid="post-container"], shreddit-post')) p += 2_000;
+            return p;
+          } catch {
+            return 0;
+          }
+        };
+
+        nodes.sort((a, b) => {
+          const pa = priority(a) + depthOf(a);
+          const pb = priority(b) + depthOf(b);
+          return pb - pa;
+        });
+      } catch {
+        // Ignore sort failures.
+      }
       const tasks = [];
+
+      const scanDebug = state.v2Debug?.scan;
+      if (scanDebug) {
+        scanDebug.cycles += 1;
+        scanDebug.lastAt = Date.now();
+        scanDebug.nodes = nodes.length;
+        scanDebug.skippedUi = 0;
+        scanDebug.skippedNoAuthor = 0;
+        scanDebug.skippedNoUsername = 0;
+        scanDebug.skippedHasBadge = 0;
+        scanDebug.processedReused = 0;
+        scanDebug.attached = 0;
+      }
 
       // Note: `div[data-testid="comment"]` is also a *container* on new Reddit.
       // Keep it for extraction, but exclude it from mention filtering.
@@ -4326,6 +4649,7 @@
             `#${UI_ROOT_ID}, .rss-drawer, .rss-overlay, .rss-tooltip, .rss-popover`,
           )
         ) {
+          if (scanDebug) scanDebug.skippedUi += 1;
           continue;
         }
 
@@ -4347,27 +4671,72 @@
           }
         }
 
-        if (!authorEl || !username) continue;
+        if (!authorEl) {
+          if (scanDebug) scanDebug.skippedNoAuthor += 1;
+          continue;
+        }
+
+        if (!username) {
+          if (scanDebug) scanDebug.skippedNoUsername += 1;
+          continue;
+        }
 
         // If a badge already exists near this author, treat this container as processed.
         // Important: our badge is sometimes inserted *outside* the content container
         // (e.g. after a hovercard host), so `node.querySelector([data-rss-badge])` is not reliable.
         if (hasExistingBadgeNear(authorEl)) {
           node.setAttribute(PROCESSED_ATTR, "true");
+          if (scanDebug) scanDebug.skippedHasBadge += 1;
           continue;
         }
 
         // If the container claims it was processed but we no longer see a badge near the author,
         // allow reprocessing. This handles cases where Reddit re-renders and drops our injected node.
         if (processed) node.removeAttribute(PROCESSED_ATTR);
+        if (processed && scanDebug) scanDebug.processedReused += 1;
 
         // Note: posts in the feed may have no body text; allow empty string.
         const text = extractText(node) || "";
         node.setAttribute(PROCESSED_ATTR, "true");
+        if (scanDebug) scanDebug.attached += 1;
         tasks.push(attachBadge({ element: node, authorEl, username, text }));
       }
 
       await Promise.all(tasks);
+
+      // Optional debug logging (throttled).
+      try {
+        if (state.v2Options?.debugLogging && state.v2Debug?.scan) {
+          const now = Date.now();
+          if (now - (state.v2Debug.lastScanLogAt || 0) > 5000) {
+            state.v2Debug.lastScanLogAt = now;
+            // Keep as console.log so it appears without requiring the "Debug" filter.
+            // eslint-disable-next-line no-console
+            console.log("[RSS] scan", {
+              version: RSS_SCRIPT_VERSION,
+              nodes: state.v2Debug.scan.nodes,
+              attached: state.v2Debug.scan.attached,
+              skipped: {
+                ui: state.v2Debug.scan.skippedUi,
+                noAuthor: state.v2Debug.scan.skippedNoAuthor,
+                noUsername: state.v2Debug.scan.skippedNoUsername,
+                hasBadge: state.v2Debug.scan.skippedHasBadge,
+              },
+              train: {
+                tab: state.v2TrainBuffer.length,
+                all: state.v2TrainPersisted.length,
+                persistErrors: state.v2TrainPersistErrorCount,
+                lastSaveOk: state.v2Debug.train.lastSaveOk,
+                added: state.v2Debug.train.added,
+                deduped: state.v2Debug.train.deduped,
+                capped: state.v2Debug.train.capped,
+              },
+            });
+          }
+        }
+      } catch {
+        // Ignore.
+      }
     };
 
     const refreshAllBadges = async () => {
@@ -4451,6 +4820,34 @@
 
       await scanRoot(doc);
 
+      // Always print *one* scan summary so we can debug even when debug logging is OFF.
+      // (Firefox often hides console.debug by default.)
+      try {
+        // eslint-disable-next-line no-console
+        console.log("[RSS] scan(initial)", {
+          version: RSS_SCRIPT_VERSION,
+          nodes: state.v2Debug?.scan?.nodes,
+          attached: state.v2Debug?.scan?.attached,
+          skipped: {
+            ui: state.v2Debug?.scan?.skippedUi,
+            noAuthor: state.v2Debug?.scan?.skippedNoAuthor,
+            noUsername: state.v2Debug?.scan?.skippedNoUsername,
+            hasBadge: state.v2Debug?.scan?.skippedHasBadge,
+          },
+          train: {
+            tab: state.v2TrainBuffer?.length,
+            all: state.v2TrainPersisted?.length,
+            persistErrors: state.v2TrainPersistErrorCount,
+            lastSaveOk: state.v2Debug?.train?.lastSaveOk,
+            added: state.v2Debug?.train?.added,
+            deduped: state.v2Debug?.train?.deduped,
+            capped: state.v2Debug?.train?.capped,
+          },
+        });
+      } catch {
+        // Ignore.
+      }
+
       const raf =
         typeof win.requestAnimationFrame === "function"
           ? win.requestAnimationFrame.bind(win)
@@ -4511,6 +4908,19 @@
 
   if (typeof window === "undefined" || typeof document === "undefined") return;
   if (!document.body) return;
+
+  // Confirm we reached the runtime entrypoint (if you only see [RSS] start but not this,
+  // the script is crashing/returning before engine startup).
+  try {
+    // eslint-disable-next-line no-console
+    console.log("[RSS] boot", {
+      version: RSS_SCRIPT_VERSION,
+      href: String(window?.location?.href || ""),
+      hasBody: Boolean(document.body),
+    });
+  } catch {
+    // Ignore.
+  }
 
   const engine = createRedditSlopSleuth({
     win: window,
