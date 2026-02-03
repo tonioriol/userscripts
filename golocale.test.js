@@ -4,11 +4,14 @@ import {
   injectPath,
   injectSubdomain,
   injectParams,
-  isTargetLanguage
+  isTargetLanguage,
+  buildHistoryStateWithGoLocale,
+  getGoLocaleHistoryState,
+  shouldSkipRedirectOnBackNavigation
 } from './golocale.user.js'
 
 describe('GoLocale URL Strategies', () => {
-  
+
   describe('Strategy 1: Replace Language Codes', () => {
     it('should replace /es/ with /ca/', () => {
       expect(replaceLanguageCodes('https://example.com/es/page', 'ca'))
@@ -151,10 +154,10 @@ describe('GoLocale URL Strategies', () => {
       // Mock the LANGUAGE_CONFIG for testing
       const originalConfig = global.LANGUAGE_CONFIG
       global.LANGUAGE_CONFIG = { targetLang: "fr", altLang: null }
-      
+
       expect(replaceLanguageCodes('https://example.com/en/page', 'fr'))
         .toBe('https://example.com/fr/page')
-      
+
       // Restore original config
       global.LANGUAGE_CONFIG = originalConfig
     })
@@ -167,6 +170,26 @@ describe('GoLocale URL Strategies', () => {
     it('should work with any ISO language code', () => {
       expect(replaceLanguageCodes('https://example.com/it/page', 'pt'))
         .toBe('https://example.com/pt/page')
+    })
+  })
+
+  describe('History loop prevention', () => {
+    it('should store and retrieve GoLocale state inside history.state', () => {
+      const from = { some: 'state' }
+      const next = buildHistoryStateWithGoLocale(from, { redirectedTo: 'https://example.com/ca' })
+
+      expect(next.some).toBe('state')
+      expect(getGoLocaleHistoryState(next)).toEqual({ redirectedTo: 'https://example.com/ca' })
+    })
+
+    it('should skip redirect when coming back (back_forward) to a previously-redirected entry', () => {
+      const state = buildHistoryStateWithGoLocale({}, { redirectedTo: 'https://example.com/ca' })
+      expect(shouldSkipRedirectOnBackNavigation('back_forward', state)).toBe(true)
+    })
+
+    it('should not skip redirect on normal navigation', () => {
+      const state = buildHistoryStateWithGoLocale({}, { redirectedTo: 'https://example.com/ca' })
+      expect(shouldSkipRedirectOnBackNavigation('navigate', state)).toBe(false)
     })
   })
 })
