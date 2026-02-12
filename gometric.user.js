@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GoMetric
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.1.13
+// @version      0.1.14
 // @description  Automatically converts imperial units to metric units and currencies
 // @author       Toni Oriol
 // @match        *://*/*
@@ -178,7 +178,8 @@
   const conversions = [
     // Temperature
     {
-      pattern: "(?:F|fahrenheit|fahrenheits|degrees F|degrees fahrenheit)",
+      // Support both "70 F" and "70°F" (degree symbol between value and unit)
+      pattern: "(?:(?:°\\s*)?F|fahrenheit|fahrenheits|degrees\\s*F|degrees\\s*fahrenheit)",
       unit: "℃",
       convert: (f) => ((f - 32) / 1.8).toFixed(2),
       scale: scales.none,
@@ -424,11 +425,22 @@
     },
   ];
 
+  // Shared number pattern for unit matching (supports mixed fractions like "1 1/4")
+  const UNIT_NUMBER_SOURCE = `(?:\\d\\s)?[0-9,]+(?:\\.[0-9]+)?(?:/[0-9]+(?:\\.[0-9]+)?)?`;
+  // Range separators (hyphen, en dash, em dash, or "to")
+  const RANGE_SEP_SOURCE = `-|–|—|to`;
+
   // Compile regex patterns once for performance
   conversions.forEach((rule) => {
     rule.regex = new RegExp(
-      `(?:^|\\s)((\\d\\s)?[0-9,]+(?:\\.[0-9]+)?(?:/[0-9]+(?:\\.[0-9]+)?)?)\\s*(${rule.pattern})\\b(?!(\\s\\[))`,
+      `(?:^|\\s)(${UNIT_NUMBER_SOURCE})\\s*(${rule.pattern})\\b(?!(\\s\\[))`,
       "gi"
+    );
+
+    // Also match ranges like "50-70°F" or "5 to 10 miles"
+    rule.rangeRegex = new RegExp(
+      `(?:^|\\s)(${UNIT_NUMBER_SOURCE})\\s*(${RANGE_SEP_SOURCE})\\s*(${UNIT_NUMBER_SOURCE})\\s*(${rule.pattern})\\b(?!(\\s\\[))`,
+      'gi'
     );
   });
 
@@ -474,6 +486,29 @@
     }
 
     return { value, unit };
+  };
+
+  // Pick a single scale (prefix+divisor) for a value, so ranges can share one unit.
+  const pickScale = (value, scalePrefixes) => {
+    if (!scalePrefixes || scalePrefixes.length === 0) {
+      return { divisor: 1, prefix: '' };
+    }
+
+    // Scale up for large values (T, G, M, k)
+    for (const { threshold, prefix, divisor } of scalePrefixes) {
+      if (threshold >= 1e3 && value >= threshold) {
+        return { divisor, prefix };
+      }
+    }
+
+    // Scale down for small values (c, m, µ, n, p)
+    for (const { threshold, prefix, divisor } of scalePrefixes) {
+      if (threshold < 1 && value >= threshold && value < 1) {
+        return { divisor, prefix };
+      }
+    }
+
+    return { divisor: 1, prefix: '' };
   };
 
   // Parse currency amount with smart decimal detection
@@ -552,6 +587,124 @@
     // Optional magnitude suffix comes from the unified currency config (k/M/B/T, bn/tn, etc.)
     const amountPattern = `[0-9][0-9,.\u00A0\u202F ]*[0-9](?:${currencyMultiplierPattern})?|[0-9](?:${currencyMultiplierPattern})?`;
 
+    // Range separators (hyphen, en dash, em dash, or "to")
+    const rangeSepPattern = `(?:-|–|—|to)`;
+
+    // Convert ranges like "$4,000-7,000" or "4,000-7,000 USD" in one go.
+    // If the first side already has a conversion ("$4,000 [€..]-7,000"), also convert the second side.
+    const currencyRangeRegexes = [
+      // indicator-first range: $4,000-7,000
+      new RegExp(
+        `(^|[^\\w])(${currencyIndicatorPattern})\\s*(${amountPattern})\\s*(${rangeSepPattern})\\s*(${amountPattern})(?!\\w)`,
+        'gi'
+      ),
+      // amount-first range: 4,000-7,000 USD
+      new RegExp(
+        `(^|[^\\w])(${amountPattern})\\s*(${rangeSepPattern})\\s*(${amountPattern})\\s*(${currencyIndicatorPattern})(?!\\w)`,
+        'gi'
+      ),
+      // partially converted range: $4,000 [€..]-7,000 (convert the second side)
+      new RegExp(
+        `(^|[^\\w])(${currencyIndicatorPattern})\\s*(${amountPattern})\\s*\\[[^\\]]+\\]\\s*(${rangeSepPattern})\\s*(${amountPattern})(?!\\w)`,
+        'gi'
+      ),
+    ];
+
+    const rangeMatches = [];
+    for (const rx of currencyRangeRegexes) {
+      rx.lastIndex = 0;
+      let m;
+      while ((m = rx.exec(text)) !== null) {
+        // Skip if already converted (followed by " [")
+        const afterMatch = text.slice(m.index + m[0].length, m.index + m[0].length + 2);
+        if (afterMatch === ' [') continue;
+
+        // Branch by regex shape
+        if (rx === currencyRangeRegexes[0]) {
+          // ($)(a)-(b)
+          rangeMatches.push({
+            kind: 'range',
+            original: m[0],
+            index: m.index,
+            indicator: m[2],
+            amount1Str: m[3],
+            sep: m[4],
+            amount2Str: m[5],
+          });
+        } else if (rx === currencyRangeRegexes[1]) {
+          // (a)-(b)(USD)
+          rangeMatches.push({
+            kind: 'range',
+            original: m[0],
+            index: m.index,
+            indicator: m[5],
+            amount1Str: m[2],
+            sep: m[3],
+            amount2Str: m[4],
+          });
+        } else {
+          // ($)(a)[..]-(b) => convert only the second side
+          rangeMatches.push({
+            kind: 'secondOnly',
+            original: m[0],
+            index: m.index,
+            indicator: m[2],
+            sep: m[4],
+            amount2Str: m[5],
+          });
+        }
+      }
+    }
+
+    // Apply range conversions in reverse (to preserve indices)
+    rangeMatches.sort((a, b) => b.index - a.index);
+    for (const rm of rangeMatches) {
+      const currency = resolveCurrency(rm.indicator);
+      if (!currency || currency === HOME_CURRENCY) continue;
+
+      const rate = rates[currency.toLowerCase()];
+      if (!rate) continue;
+
+      const sym = getSymbol(HOME_CURRENCY);
+      const sepOut = String(rm.sep).toLowerCase() === 'to' ? '-' : rm.sep;
+
+      if (rm.kind === 'range') {
+        const amount1 = parseCurrencyAmount(rm.amount1Str);
+        const amount2 = parseCurrencyAmount(rm.amount2Str);
+        if (isNaN(amount1) || isNaN(amount2)) continue;
+
+        const converted1 = amount1 / rate;
+        const converted2 = amount2 / rate;
+
+        const formatted1 = converted1.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        });
+        const formatted2 = converted2.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        });
+
+        const replacement = `${rm.original} [${sym}${formatted1}${sepOut}${sym}${formatted2}]`;
+        text = text.slice(0, rm.index) + replacement + text.slice(rm.index + rm.original.length);
+      } else {
+        const amount2 = parseCurrencyAmount(rm.amount2Str);
+        if (isNaN(amount2)) continue;
+
+        const converted2 = amount2 / rate;
+        const formatted2 = converted2.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        });
+
+        // Insert conversion right after the second amount within the matched substring.
+        const rel = rm.original.lastIndexOf(rm.amount2Str);
+        if (rel < 0) continue;
+        const insertAt = rm.index + rel + rm.amount2Str.length;
+        text = text.slice(0, insertAt) + ` [${sym}${formatted2}]` + text.slice(insertAt);
+      }
+    }
+
     // Simple regex: (indicator)(amount) OR (amount)(indicator)
     // Notes:
     // - Require a non-word boundary before indicator to avoid matching inside words
@@ -566,6 +719,18 @@
     const matches = [];
     let match;
 
+    // Helper: avoid converting individual amounts that are part of a range like "$4,000-7,000"
+    // or "4,000-7,000 USD". Ranges are handled above.
+    const isRangeContextForAmount = (amountAbsStart, amountAbsEnd) => {
+      const right = text.slice(amountAbsEnd, amountAbsEnd + 16);
+      if (/^\s*(?:-|–|—|to)\s*[0-9]/iu.test(right)) return true;
+
+      const left = text.slice(Math.max(0, amountAbsStart - 20), amountAbsStart);
+      if (/[0-9][0-9,.\u00A0\u202F ]*\s*(?:-|–|—|to)\s*$/iu.test(left)) return true;
+
+      return false;
+    };
+
     while ((match = regex.exec(text)) !== null) {
       // Skip if already converted (followed by " [")
       const afterMatch = text.slice(match.index + match[0].length, match.index + match[0].length + 2);
@@ -574,6 +739,14 @@
       // Extract from either format: indicator-first or amount-first
       const numStr = match[3] || match[4];
       const indicator = match[2] || match[5];
+
+      // Skip amounts that are part of a range (handled by range conversion above)
+      const relAmountIndex = match[0].indexOf(numStr);
+      if (relAmountIndex >= 0) {
+        const amountAbsStart = match.index + relAmountIndex;
+        const amountAbsEnd = amountAbsStart + numStr.length;
+        if (isRangeContextForAmount(amountAbsStart, amountAbsEnd)) continue;
+      }
 
       const currency = resolveCurrency(indicator);
       const amount = parseCurrencyAmount(numStr);
@@ -605,7 +778,9 @@
   // Main transformation function (async - handles both currency and units)
   const transformText = async (text) => {
     // Early exit if text is too short or already has conversions
-    if (!text || text.length < 2 || (text.includes('[') && text.includes(']'))) {
+    // NOTE: do NOT skip just because the node contains "[...]"; it may contain a partially converted range
+    // like "$4,000 [€..]-7,000" or mixed converted/unconverted units.
+    if (!text || text.length < 2) {
       return text;
     }
 
@@ -617,13 +792,54 @@
 
     // Apply each unit conversion rule to the text
     conversions.forEach((rule) => {
+      // 1) Ranges first (e.g. "50-70°F")
+      const rangeSpans = [];
+      rule.rangeRegex.lastIndex = 0;
+      let rangeMatch;
+      while ((rangeMatch = rule.rangeRegex.exec(text)) !== null) {
+        const originalText = rangeMatch[0];
+        const matchPosition = rangeMatch.index;
+
+        const a = parseNumber(rangeMatch[1]);
+        const sep = rangeMatch[2];
+        const b = parseNumber(rangeMatch[3]);
+
+        const metricA = rule.convert ? Number(rule.convert(a)) : a * rule.factor;
+        const metricB = rule.convert ? Number(rule.convert(b)) : b * rule.factor;
+
+        const maxAbs = Math.max(Math.abs(metricA), Math.abs(metricB));
+        const { divisor, prefix } = pickScale(maxAbs, rule.scale);
+        const scaledUnit = prefix + rule.unit;
+
+        const scaledA = metricA / divisor;
+        const scaledB = metricB / divisor;
+
+        const roundedA = Math.round(scaledA * 100) / 100;
+        const roundedB = Math.round(scaledB * 100) / 100;
+
+        const sepOut = String(sep).toLowerCase() === 'to' ? '-' : sep;
+        const replacement = `${originalText} [${roundedA}${sepOut}${roundedB} ${scaledUnit}]`;
+
+        replacements.push({
+          index: matchPosition,
+          length: originalText.length,
+          replacement
+        });
+        rangeSpans.push({ start: matchPosition, end: matchPosition + originalText.length });
+      }
+
       rule.regex.lastIndex = 0;
       let match;
 
       // Find all matches for this conversion rule
       while ((match = rule.regex.exec(text)) !== null) {
-        const originalText = match[0];
+        // Skip single matches that occur inside a previously matched range (e.g. "10 miles" inside "5 to 10 miles")
         const matchPosition = match.index;
+        if (rangeSpans.some(s => matchPosition >= s.start && matchPosition < s.end)) {
+          continue;
+        }
+
+        const originalText = match[0];
 
         // Step 1: Parse the imperial value
         const imperialValue = parseNumber(match[1]);
