@@ -68,6 +68,11 @@ describe('GoMetric', () => {
         { input: '30 psi', expected: '[206.84 kPa]', category: 'Pressure' },
         { input: '1 bar', expected: '[100 kPa]', category: 'Pressure' },
 
+        // Ranges
+        { input: 'Daylight, temps in the 50-70°F range, peak wildlife acti', expected: '[10-21.11 ℃]', category: 'Temperature range (°F)' },
+        { input: 'Budget $4,000-7,000/person.', expected: /\$4,000-7,000\s*\[€[^\]]+\]\/person\./, category: 'Currency range (USD)' },
+        { input: 'Budget $4,000 [€3.383,91]-7,000/person.', expected: /\$4,000 \[€3\.383,91\]-7,000\s*\[€[^\]]+\]\/person\./, category: 'Currency partial range (second side)' },
+
         // Energy & Power
         { input: '1000 btu', expected: '[1.06 MJ]', category: 'Energy' },
         { input: '100 hp', expected: '[74.57 kW]', category: 'Power' },
