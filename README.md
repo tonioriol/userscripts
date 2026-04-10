@@ -36,6 +36,10 @@ Adds language filter buttons to Google search results. Default languages: Catala
 
 Context menu shortcuts to bypass article paywalls using 12ft.io.
 
+### ProfileUnhider
+
+Reveals publicly indexed posts and comments for hidden Reddit profiles.
+
 ### SuperPiP
 
 Enables native video controls and Picture-in-Picture on websites. Removes overlay elements that block video interaction.
