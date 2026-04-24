@@ -2,14 +2,17 @@
 
 Reveal publicly indexed posts and comments for hidden Reddit profiles.
 
+Clean-room standalone userscript with a custom UI designed for Safari iOS and other userscript managers.
+
 ## What it does
 
 - Detects when a Reddit user profile is hidden
-- Injects a minimal **Reveal activity** button directly on the profile page
+- Injects a custom **Reveal activity** panel directly on the profile page
 - Shows two tabs:
   - **Posts** from Reddit search results
   - **Comments** hydrated from Reddit threads so the actual comment text is shown
 - Supports pagination with **Load more**
+- Uses a clean-room implementation with no dependency on the original extension package structure
 
 ## How it works
 
@@ -35,6 +38,7 @@ Everything is done client-side on the page with ordinary Reddit requests.
 - Uses Reddit's public search index, so very recent activity may not appear yet
 - Comment hydration is slower than posts because it fetches each thread to recover the real comment text
 - No extension manifest or separate stylesheet is required; everything is bundled into one file
+- The UI and code are a rewritten standalone version rather than a packaged extension port
 
 ## License
 
