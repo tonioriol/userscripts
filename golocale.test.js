@@ -1,13 +1,12 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   replaceLanguageCodes,
   injectPath,
   injectSubdomain,
   injectParams,
   isTargetLanguage,
-  buildHistoryStateWithGoLocale,
-  getGoLocaleHistoryState,
-  shouldSkipRedirectOnBackNavigation
+  tryRedirect,
+  urlHasTargetLanguageHint
 } from './golocale.user.js'
 
 describe('GoLocale URL Strategies', () => {
@@ -173,23 +172,61 @@ describe('GoLocale URL Strategies', () => {
     })
   })
 
-  describe('History loop prevention', () => {
-    it('should store and retrieve GoLocale state inside history.state', () => {
-      const from = { some: 'state' }
-      const next = buildHistoryStateWithGoLocale(from, { redirectedTo: 'https://example.com/ca' })
+  describe('Redirect loop guards', () => {
+    const originalGlobals = {}
 
-      expect(next.some).toBe('state')
-      expect(getGoLocaleHistoryState(next)).toEqual({ redirectedTo: 'https://example.com/ca' })
+    beforeEach(() => {
+      originalGlobals.location = global.location
+      originalGlobals.document = global.document
+      originalGlobals.history = global.history
+      originalGlobals.fetch = global.fetch
+      originalGlobals.GM = global.GM
+      originalGlobals.sessionStorage = global.sessionStorage
+
+      global.document = {
+        referrer: '',
+        documentElement: {
+          outerHTML: '<html lang="es"><body>Contenido en español</body></html>'
+        },
+        querySelector: vi.fn(() => null)
+      }
+      global.history = { length: 2 }
+      global.fetch = vi.fn()
+      global.GM = {
+        getValue: vi.fn().mockResolvedValue(false),
+        setValue: vi.fn().mockResolvedValue(undefined)
+      }
+      global.sessionStorage = {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn()
+      }
     })
 
-    it('should skip redirect when coming back (back_forward) to a previously-redirected entry', () => {
-      const state = buildHistoryStateWithGoLocale({}, { redirectedTo: 'https://example.com/ca' })
-      expect(shouldSkipRedirectOnBackNavigation('back_forward', state)).toBe(true)
+    afterEach(() => {
+      for (const [key, value] of Object.entries(originalGlobals)) {
+        if (value === undefined) {
+          delete global[key]
+        } else {
+          global[key] = value
+        }
+      }
     })
 
-    it('should not skip redirect on normal navigation', () => {
-      const state = buildHistoryStateWithGoLocale({}, { redirectedTo: 'https://example.com/ca' })
-      expect(shouldSkipRedirectOnBackNavigation('navigate', state)).toBe(false)
+    it('should detect preferred-language hints that would otherwise cause nested redirects', () => {
+      expect(urlHasTargetLanguageHint('https://example.com/ca/page')).toBe(true)
+      expect(urlHasTargetLanguageHint('https://ca.example.com/page')).toBe(true)
+      expect(urlHasTargetLanguageHint('https://example.com/page?lang=ca-ES')).toBe(true)
+      expect(urlHasTargetLanguageHint('https://example.com/case-study')).toBe(false)
+    })
+
+    it('should skip redirect attempts when the current URL already targets the preferred language', async () => {
+      global.location = new URL('https://example.com/ca/page')
+
+      await tryRedirect()
+
+      expect(global.fetch).not.toHaveBeenCalled()
+      expect(global.GM.setValue).not.toHaveBeenCalled()
     })
   })
+
 })

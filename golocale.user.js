@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GoLocale
 // @namespace    https://github.com/tonioriol/userscripts
-// @version      0.4.2
+// @version      0.8.1
 // @description  Automatically redirects URLs to their preferred language equivalents
 // @author       Toni Oriol
 // @match        *://*/*
@@ -12,6 +12,12 @@
 // @updateURL    https://github.com/tonioriol/userscripts/raw/refs/heads/main/golocale.user.js
 // @downloadURL  https://github.com/tonioriol/userscripts/raw/refs/heads/main/golocale.user.js
 // ==/UserScript==
+
+/**
+ * TODO:
+ * - [ ] make the ui so it doesnt collide NEVER with the page css
+ * - [ ] make the button that shows up to stop the golocale to act to have a navigate to prev page button (and then also show it there to disable the redirects, so when we are back using that button it doesnt try again also!)
+ */
 
 // Configuration groups
 const LANGUAGE_CONFIG = {
@@ -39,64 +45,147 @@ const getBaseDomain = (hostname) => {
 const getStorageKey = (domain, type) => `golocale_${type}_${getBaseDomain(domain)}`;
 
 // Session-history helpers
-// We store a small marker in the current history entry before redirecting.
-// When the user navigates back to that entry, we detect it and avoid redirect loops.
-const GOLOCALE_HISTORY_STATE_KEY = "__golocale";
+const GOLOCALE_STORAGE_PREFIX = "__golocale_redirected_";
 
-const getGoLocaleHistoryState = (historyState) => {
-  if (!historyState || typeof historyState !== "object") return null;
-  const v = historyState[GOLOCALE_HISTORY_STATE_KEY];
-  return v && typeof v === "object" ? v : null;
-};
-
-const buildHistoryStateWithGoLocale = (historyState, patch) => {
-  const base = historyState && typeof historyState === "object" ? historyState : {};
-  const nextGoLocale = { ...(getGoLocaleHistoryState(base) || {}), ...(patch || {}) };
-  return { ...base, [GOLOCALE_HISTORY_STATE_KEY]: nextGoLocale };
-};
-
-const shouldSkipRedirectOnBackNavigation = (navigationType, historyState) => {
-  if (navigationType !== "back_forward") return false;
-  const state = getGoLocaleHistoryState(historyState);
-  return Boolean(state?.redirectedTo);
-};
-
-const getNavigationType = () => {
-  // Spec-compliant API
+const getRedirectMarkerKey = (url) => {
   try {
-    const navEntry = performance?.getEntriesByType?.("navigation")?.[0];
-    if (navEntry && typeof navEntry.type === "string") return navEntry.type;
+    const normalized = new URL(url).href;
+    return GOLOCALE_STORAGE_PREFIX + normalized;
   } catch {
-    // ignore
+    return GOLOCALE_STORAGE_PREFIX + url;
   }
-
-  // Legacy API (Safari still exposes this in some contexts)
-  try {
-    const legacyType = performance?.navigation?.type;
-    if (legacyType === 2) return "back_forward";
-    if (legacyType === 1) return "reload";
-    if (legacyType === 0) return "navigate";
-  } catch {
-    // ignore
-  }
-
-  return "navigate";
 };
 
-const markRedirectInHistoryState = (fromUrl, toUrl) => {
+const markUrlAsRedirected = (fromUrl, toUrl) => {
   try {
-    if (typeof history === "undefined" || typeof history.replaceState !== "function") return;
-
-    const nextState = buildHistoryStateWithGoLocale(history.state, {
-      redirectedFrom: fromUrl,
+    if (typeof sessionStorage === "undefined") return;
+    const key = getRedirectMarkerKey(fromUrl);
+    sessionStorage.setItem(key, JSON.stringify({
       redirectedTo: toUrl,
       redirectedAt: Date.now()
-    });
-
-    history.replaceState(nextState, document.title);
+    }));
   } catch (error) {
-    console.warn("[GoLocale] Failed to mark redirect in history state:", error);
+    console.warn("[GoLocale] Failed to mark URL as redirected:", error);
   }
+};
+
+const wasUrlRedirected = (url) => {
+  try {
+    if (typeof sessionStorage === "undefined") return null;
+    const key = getRedirectMarkerKey(url);
+    const value = sessionStorage.getItem(key);
+    return value ? JSON.parse(value) : null;
+  } catch {
+    return null;
+  }
+};
+
+const getTargetLanguageHints = () => {
+  return [LANGUAGE_CONFIG.targetLang, LANGUAGE_CONFIG.altLang]
+    .filter(Boolean)
+    .map((lang) => String(lang).toLowerCase());
+};
+
+const matchesTargetLanguageHint = (value, targetLangs = getTargetLanguageHints()) => {
+  if (!value) return false;
+
+  const normalized = String(value).toLowerCase();
+  const baseCode = normalized.split(/[-_]/)[0];
+
+  return targetLangs.includes(normalized) || targetLangs.includes(baseCode);
+};
+
+const urlHasTargetLanguageHint = (url) => {
+  try {
+    const u = new URL(url);
+    const targetLangs = getTargetLanguageHints();
+    const subdomain = u.hostname.split(".")[0];
+    const pathSegments = u.pathname.split("/").filter(Boolean);
+
+    if (matchesTargetLanguageHint(subdomain, targetLangs)) {
+      return true;
+    }
+
+    if (pathSegments.some((segment) => matchesTargetLanguageHint(segment, targetLangs))) {
+      return true;
+    }
+
+    return DETECTION_CONFIG.urlParams.some((param) => {
+      return matchesTargetLanguageHint(u.searchParams.get(param), targetLangs);
+    });
+  } catch {
+    return false;
+  }
+};
+
+const shouldSkipRedirect = (currentUrl, referrer = "") => {
+  const marker = wasUrlRedirected(currentUrl);
+  console.log("[GoLocale] Checking skip - marker:", marker, "referrer:", referrer);
+
+  if (!marker) {
+    console.log("[GoLocale] No redirect marker found");
+    return false;
+  }
+
+  // Check Navigation Timing API for back_forward
+  try {
+    const navEntry = performance?.getEntriesByType?.("navigation")?.[0];
+    if (navEntry?.type === "back_forward") {
+      console.log("[GoLocale] Navigation Timing reports back_forward - skipping");
+      return true;
+    }
+  } catch { /* ignore */ }
+
+  try {
+    if (performance?.navigation?.type === 2) {
+      console.log("[GoLocale] Legacy nav API reports back_forward - skipping");
+      return true;
+    }
+  } catch { /* ignore */ }
+
+  // Fallback: referrer matches the URL we redirected to
+  try {
+    if (referrer && String(referrer) === String(marker.redirectedTo)) {
+      console.log("[GoLocale] Referrer matches redirect target - skipping");
+      return true;
+    }
+  } catch { /* ignore */ }
+
+  console.log("[GoLocale] Not a back navigation - will redirect");
+  return false;
+};
+
+// Redirect using pushState + document.write:
+// 1. pushState(target) → changes URL to /ca/, creating entry with /es/ underneath
+// 2. document.open/write/close(html) → replaces page content with fetched HTML
+// NO navigation occurs at all, so history is never modified beyond the pushState.
+// Back from /ca/ will land on /es/ because pushState preserved it.
+const pushStateAndWrite = (targetUrl, html) => {
+  // Use native pushState to bypass SPA framework patches
+  const nativePush = typeof History !== "undefined"
+    ? History.prototype.pushState
+    : null;
+
+  if (!nativePush) {
+    console.log("[GoLocale] History API unavailable, falling back to location.href");
+    location.href = targetUrl;
+    return;
+  }
+
+  console.log("[GoLocale] pushState to:", targetUrl, "(history.length before:", history.length + ")");
+
+  // pushState changes the URL without navigating. /es/ entry stays underneath.
+  nativePush.call(history, null, "", targetUrl);
+
+  console.log("[GoLocale] pushState done (history.length after:", history.length + ")");
+  console.log("[GoLocale] Writing fetched HTML into document (", html.length, "bytes)");
+
+  // document.open/write/close replaces the page content without any navigation.
+  // This does NOT create or modify history entries.
+  // The browser will parse the HTML, execute scripts, load resources, etc.
+  document.open();
+  document.write(html);
+  document.close();
 };
 
 const notify = (message, buttonText, callback) => {
@@ -124,7 +213,6 @@ const notify = (message, buttonText, callback) => {
     </div>
   `;
 
-  // Add event listener for action button
   if (buttonText && callback) {
     const actionBtn = notification.querySelector('.golocale-action-btn');
     actionBtn.onclick = () => {
@@ -141,7 +229,6 @@ const isTargetLanguage = (html) => {
   const targetLangs = [LANGUAGE_CONFIG.targetLang, LANGUAGE_CONFIG.altLang].filter(Boolean);
   console.log("[GoLocale] Checking if page is in target languages:", targetLangs);
 
-  // Check HTML lang attribute first
   const langAttr = html.match(/<html[^>]*lang=["']([^"']*)/i);
   const lang = langAttr?.[1]?.toLowerCase();
   console.log("[GoLocale] HTML lang attribute found:", lang);
@@ -157,7 +244,6 @@ const isTargetLanguage = (html) => {
     return false;
   }
 
-  // Use franc detection as fallback
   const detectedLang = francDetect(html);
   console.log("[GoLocale] Franc detected language code:", detectedLang);
 
@@ -173,6 +259,7 @@ const isTargetLanguage = (html) => {
   return false;
 };
 
+// Returns { isTarget, html } so we can reuse the fetched HTML for document.write
 const fetchAndCheckLanguage = async (url) => {
   console.log("[GoLocale] Testing URL candidate:", url);
 
@@ -182,7 +269,7 @@ const fetchAndCheckLanguage = async (url) => {
 
     if (response.status >= 400) {
       console.log("[GoLocale] URL failed with status >= 400");
-      return false;
+      return { isTarget: false, html: null };
     }
 
     const html = await response.text();
@@ -190,24 +277,23 @@ const fetchAndCheckLanguage = async (url) => {
 
     const result = isTargetLanguage(html);
     console.log("[GoLocale] URL candidate result:", result);
-    return result;
+    return { isTarget: result, html: result ? html : null };
   } catch (error) {
     console.error("[GoLocale] Error fetching URL:", url, error);
 
-    // Try no-cors fallback
     console.log("[GoLocale] Trying no-cors fallback");
     try {
       const noCorsResponse = await fetch(url, { mode: "no-cors" });
       console.log("[GoLocale] No-cors response type:", noCorsResponse.type);
       if (noCorsResponse.type === "opaque") {
-        console.log("[GoLocale] No-cors succeeded, assuming URL is valid");
-        return true;
+        console.log("[GoLocale] No-cors succeeded, assuming URL is valid (no HTML available)");
+        return { isTarget: true, html: null };
       }
     } catch (noCorsError) {
       console.error("[GoLocale] No-cors fallback also failed:", noCorsError);
     }
 
-    return false;
+    return { isTarget: false, html: null };
   }
 };
 
@@ -280,22 +366,15 @@ const generateUrlCandidates = (url) => {
   for (const targetLang of targetLangs) {
     console.log("[GoLocale] Generating candidates for language:", targetLang);
 
-    // Strategy 1: Replace existing language codes
     candidates.push(replaceLanguageCodes(url, targetLang));
 
-    // Strategy 2: Replace subdomain language codes
     const replacedSubdomainUrl = replaceSubdomain(url, targetLang);
     if (replacedSubdomainUrl) {
       candidates.push(replacedSubdomainUrl);
     }
 
-    // Strategy 3: Path injection
     candidates.push(injectPath(url, targetLang));
-
-    // Strategy 4: Subdomain injection
     candidates.push(injectSubdomain(url, targetLang));
-
-    // Strategy 5: URL parameter injection
     candidates.push(...injectParams(url, targetLang));
   }
 
@@ -317,6 +396,8 @@ const handleNotification = async () => {
 const tryRedirect = async () => {
   const url = location.href;
   console.log("[GoLocale] Starting redirect attempt for:", url);
+  console.log("[GoLocale] document.referrer:", document.referrer);
+  console.log("[GoLocale] history.length:", history.length);
 
   // Check if user has disabled redirects for this domain
   const userDisabledKey = getStorageKey(location.hostname, 'user_disabled');
@@ -338,18 +419,14 @@ const tryRedirect = async () => {
     return;
   }
 
-  // If the user navigated back to a page that GoLocale previously redirected away from,
-  // avoid redirecting again (this prevents a back-button redirect loop).
-  const navigationType = getNavigationType();
-  if (
-    shouldSkipRedirectOnBackNavigation(
-      navigationType,
-      typeof history !== "undefined" ? history.state : null
-    )
-  ) {
-    console.log(
-      "[GoLocale] Skipping redirect - back/forward navigation to a previously-redirected page detected"
-    );
+  // Check if we should skip redirect (user navigated back from a GoLocale redirect)
+  if (shouldSkipRedirect(url, document.referrer)) {
+    console.log("[GoLocale] Skipping redirect - back navigation detected");
+    return;
+  }
+
+  if (urlHasTargetLanguageHint(url)) {
+    console.log("[GoLocale] URL already contains a target language hint, skipping to avoid redirect loops");
     return;
   }
 
@@ -362,29 +439,29 @@ const tryRedirect = async () => {
   }
 
   const candidates = generateUrlCandidates(url);
-  const filteredCandidates = candidates.filter((c) => c !== url);
+  const filteredCandidates = [...new Set(candidates)].filter((c) => c !== url);
   console.log("[GoLocale] Filtered candidates (excluding original URL):", filteredCandidates);
 
-  // Test each candidate URL
   for (let i = 0; i < filteredCandidates.length; i++) {
     const candidate = filteredCandidates[i];
     console.log(`[GoLocale] Testing candidate ${i + 1}/${filteredCandidates.length}:`, candidate);
 
-    if (await fetchAndCheckLanguage(candidate)) {
-      console.log("[GoLocale] Found working candidate! Redirecting to:", candidate);
+    const { isTarget, html } = await fetchAndCheckLanguage(candidate);
+    if (isTarget) {
+      console.log("[GoLocale] Found working candidate:", candidate);
 
-      // Mark the current history entry so that if the user goes back here,
-      // we can detect it and avoid redirecting again.
-      markRedirectInHistoryState(url, candidate);
+      // Mark the current URL so we can detect back navigation later
+      markUrlAsRedirected(url, candidate);
 
       await GM.setValue("notify", true);
-      console.log("[GoLocale] Notification flag set");
 
-      // Ensure the redirect creates a new session-history entry.
-      // This allows the user to press Back to return to the original URL.
-      if (typeof location.assign === "function") {
-        location.assign(candidate);
+      if (html) {
+        // Best path: pushState changes URL + document.write replaces content.
+        // Zero navigation = history is never modified beyond the pushState.
+        pushStateAndWrite(candidate, html);
       } else {
+        // Fallback: no HTML available (no-cors), use regular navigation
+        console.log("[GoLocale] No HTML available, falling back to location.href");
         location.href = candidate;
       }
       return;
@@ -418,12 +495,22 @@ const tryRedirect = async () => {
     )
   );
 
-  console.log("[GoLocale] Adding load event listener for notifications");
-  window.addEventListener("load", async () => {
-    await handleNotification();
+  const startRedirect = async () => {
     console.log("[GoLocale] Starting redirect process...");
     await tryRedirect();
     console.log("[GoLocale] Redirect process completed");
+  };
+
+  if (document.readyState === "loading") {
+    console.log("[GoLocale] Waiting for DOMContentLoaded...");
+    window.addEventListener("DOMContentLoaded", startRedirect);
+  } else {
+    console.log("[GoLocale] DOM already loaded, executing immediately");
+    startRedirect();
+  }
+
+  window.addEventListener("load", async () => {
+    await handleNotification();
   });
 })();
 
@@ -435,10 +522,7 @@ if (typeof module !== 'undefined' && module.exports) {
     injectSubdomain,
     injectParams,
     isTargetLanguage,
-    // Expose history helpers for tests
-    buildHistoryStateWithGoLocale,
-    getGoLocaleHistoryState,
-    shouldSkipRedirectOnBackNavigation,
-    getNavigationType
+    tryRedirect,
+    urlHasTargetLanguageHint
   };
 }
