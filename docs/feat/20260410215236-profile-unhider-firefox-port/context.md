@@ -33,6 +33,7 @@ Use relative paths from the repository root. These context files may be shared v
 ✅ Create a simplified single-file userscript for Safari iOS.
 ✅ Move durable task memory into the userscripts repository.
 ✅ Add user-facing README documentation following repository patterns.
+✅ Rewrite the userscript as a clean-room standalone implementation.
 
 ## EVENT LOG
 
@@ -65,6 +66,36 @@ Use relative paths from the repository root. These context files may be shared v
   * Why: The user requested that the task memory be finalized before commit/push and install-link generation.
   * How: Confirmed the userscript, repository README entry, dedicated README, and repo-local context are all present in [`../../Documents/User Scripts Safari iOS`](../../Documents/User%20Scripts%20Safari%20iOS).
   * Key info: Publish-ready files are [`profileunhider.user.js`](../../Documents/User%20Scripts%20Safari%20iOS/profileunhider.user.js), [`README-ProfileUnhider.md`](../../Documents/User%20Scripts%20Safari%20iOS/README-ProfileUnhider.md), [`README.md`](../../Documents/User%20Scripts%20Safari%20iOS/README.md), and [`docs/feat/20260410215236-profile-unhider-firefox-port/context.md`](../../Documents/User%20Scripts%20Safari%20iOS/docs/feat/20260410215236-profile-unhider-firefox-port/context.md).
+
+* **2026-04-10 22:34 - Patched hidden-comments detection after field failure**
+  * Why: A real Reddit profile page showed the text "likes to keep their comments hidden", which the earlier userscript did not recognize because it only checked for the posts-hidden wording.
+  * How: Expanded the hidden-state detection to cover comments/content/activity variants before proceeding with the broader rewrite.
+  * Key info: The failure was in hidden-state detection, not fetch/render logic.
+
+* **2026-04-10 22:40 - Rewrote the userscript as a clean-room standalone implementation**
+  * Why: The first userscript version still felt visually broken and too derivative, so it was replaced with a clearer, copyright-free standalone design.
+  * How: Replaced [`profileunhider.user.js`](../../Documents/User%20Scripts%20Safari%20iOS/profileunhider.user.js) with a new implementation based on explicit state buckets, helper functions, regex-based hidden-profile detection, a redesigned panel UI, and a simpler render pipeline for posts and comments.
+  * Key info: The rewritten userscript is version `0.1.0`, preserves the reveal behavior, and passes syntax validation with `node --check`.
+
+* **2026-04-10 22:40 - Updated documentation to reflect the rewrite**
+  * Why: The dedicated README needed to describe the clean-room standalone UI and architecture rather than the earlier quick port.
+  * How: Revised [`README-ProfileUnhider.md`](../../Documents/User%20Scripts%20Safari%20iOS/README-ProfileUnhider.md) to describe the custom panel UI and rewritten implementation.
+  * Key info: The root [`README.md`](../../Documents/User%20Scripts%20Safari%20iOS/README.md) description remained accurate and did not need wording changes.
+
+* **2026-04-10 22:51 - Fixed full-width takeover and changed the summary UI**
+  * Why: The rewritten panel was still stretching across the full content width and visually felt too close to the previous layout.
+  * How: Updated [`profileunhider.user.js`](../../Documents/User%20Scripts%20Safari%20iOS/profileunhider.user.js) so [`#pu-root`](../../Documents/User%20Scripts%20Safari%20iOS/profileunhider.user.js:125) centers a bounded card, limits [`pu-shell`](../../Documents/User%20Scripts%20Safari%20iOS/profileunhider.user.js:132) to `min(720px, 100%)`, and replaces the old heading treatment with a smaller badge-row driven summary block.
+  * Key info: The userscript still passes syntax validation with `node --check` after the layout change.
+
+* **2026-04-10 22:58 - Stopped hiding Reddit's original hidden-profile section**
+  * Why: The injected UI was making the page appear empty because [`mountApp()`](../../Documents/User%20Scripts%20Safari%20iOS/profileunhider.user.js:619) hid the original anchor container after insertion.
+  * How: Removed the `anchor.style.display = "none";` line from [`mountApp()`](../../Documents/User%20Scripts%20Safari%20iOS/profileunhider.user.js:619) so the script augments the page instead of blanking the native hidden-profile content.
+  * Key info: Syntax validation still passes with `node --check` after the visibility fix.
+
+* **2026-04-11 11:59 - Switched from banner injection to native-feed insertion based on saved Reddit HTML fixtures**
+  * Why: The user wanted the recovered content to appear where native Reddit posts/comments normally render, not in a custom banner panel above the profile.
+  * How: Inspected [`user-hidden.html`](../../Documents/User%20Scripts%20Safari%20iOS/user-hidden.html) and [`user-normal.html`](../../Documents/User%20Scripts%20Safari%20iOS/user-normal.html) to identify [`shreddit-feed`](../../Documents/User%20Scripts%20Safari%20iOS/user-hidden.html:343), the hidden placeholder [`#empty-feed-content`](../../Documents/User%20Scripts%20Safari%20iOS/user-hidden.html:344), native comment containers like [`shreddit-profile-comment`](../../Documents/User%20Scripts%20Safari%20iOS/user-normal.html:347), and native post containers like [`shreddit-post`](../../Documents/User%20Scripts%20Safari%20iOS/user-normal.html:1260). Replaced the standalone panel architecture in [`profileunhider.user.js`](../../Documents/User%20Scripts%20Safari%20iOS/profileunhider.user.js) with an inline root, recovered-item renderers, and [`syncFeed()`](../../Documents/User%20Scripts%20Safari%20iOS/profileunhider.user.js:507) that injects recovered posts/comments directly into the profile feed.
+  * Key info: The integrated-feed rewrite is version `0.2.0`, uses a lightweight reveal control, keeps native page content visible, and marks inserted items with a recovered badge.
 
 ## Next Steps
 
