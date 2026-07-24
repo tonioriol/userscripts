@@ -4,6 +4,10 @@ Collection of userscripts for Safari iOS and other browsers.
 
 ## Scripts
 
+### ChatGPT URL Autosend
+
+Prefills and optionally submits ChatGPT prompts from browser keyword shortcut URLs.
+
 ### CrossLemmy
 
 Subscribe to Lemmy communities from any instance using your home instance.
