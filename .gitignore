@@ -7,3 +7,6 @@ train/model.json
 
 # local / uncommitted training captures
 train/local/
+
+# Local docs repo (nested, not tracked by parent)
+docs/
